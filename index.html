@@ -1,0 +1,502 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex">
+<title>Aibin 台本メーカー v2</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700;900&display=swap" rel="stylesheet">
+<style>
+:root{--ink:#26201b;--sub:#8a7f76;--line:#e8e1da;--primary:#b8432f;--primary-dark:#9a3524;--tint:#fbf1ee;--paper:#fffdfb;--nega:#fff3cd}
+*{box-sizing:border-box;margin:0}
+body{font-family:'Noto Sans JP',sans-serif;color:var(--ink);background:var(--paper);-webkit-font-smoothing:antialiased}
+.wrap{max-width:900px;margin:0 auto;padding:20px 16px 60px}
+header .eyebrow{font-size:11px;letter-spacing:3px;color:var(--primary);font-weight:700}
+header h1{font-size:22px;font-weight:900}
+.tabs{display:flex;gap:8px;margin:16px 0;flex-wrap:wrap}
+.tabs button{font:inherit;font-size:14px;font-weight:700;padding:10px 18px;border-radius:999px;border:1.5px solid var(--line);background:#fff;cursor:pointer}
+.tabs button.on{background:var(--ink);color:#fff;border-color:var(--ink)}
+.card{background:#fff;border:1px solid var(--line);border-radius:14px;padding:18px;margin-top:14px;box-shadow:0 2px 10px rgba(38,32,27,.04)}
+.lbl{display:block;font-size:13px;font-weight:700;margin:14px 0 6px}
+.lbl:first-child{margin-top:0}
+input,select,textarea{width:100%;font:inherit;font-size:15px;padding:10px;border:1.5px solid var(--line);border-radius:10px;background:#fff;color:var(--ink)}
+input:focus,select:focus,textarea:focus{outline:2px solid var(--primary);outline-offset:1px;border-color:transparent}
+textarea{resize:vertical}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.row3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px}
+@media(max-width:640px){.row,.row3{grid-template-columns:1fr}}
+.cta{width:100%;margin-top:16px;padding:14px;border:none;border-radius:12px;background:var(--primary);color:#fff;font:inherit;font-size:16px;font-weight:700;cursor:pointer}
+.cta:disabled{opacity:.5}
+.ghost{background:none;border:1.5px solid var(--line);border-radius:8px;padding:7px 13px;font:inherit;font-size:13px;cursor:pointer;color:var(--ink)}
+.ghost.primary{color:var(--primary);border-color:var(--primary);font-weight:700}
+.ghost.danger{color:var(--primary-dark)}
+.err{margin-top:12px;padding:10px 12px;background:var(--tint);border-radius:10px;color:var(--primary-dark);font-size:13px;display:none}
+.hint{font-size:12px;color:var(--sub);margin-top:5px;line-height:1.6}
+.sec-label{font-size:12px;font-weight:700;color:var(--primary);letter-spacing:1px;margin:18px 0 8px}
+.pill{display:inline-block;background:var(--tint);color:var(--primary-dark);border-radius:999px;padding:4px 12px;font-size:12px;font-weight:700;margin-right:6px}
+.copy-opt{padding:10px 12px;background:var(--tint);border-radius:10px;margin-bottom:6px;font-size:14px;display:flex;justify-content:space-between;gap:10px;align-items:center}
+.copy-opt b{font-size:15px}
+.copy-opt .chars{font-size:11px;color:var(--sub);white-space:nowrap}
+table{width:100%;border-collapse:collapse;font-size:13px;margin-top:6px}
+th{text-align:left;padding:9px 10px;background:var(--tint);font-size:11px;color:var(--primary-dark);white-space:nowrap}
+td{padding:9px 10px;border-top:1px solid var(--line);vertical-align:top;line-height:1.55}
+td[contenteditable]{outline:none;border-radius:6px}
+td[contenteditable]:focus{background:var(--tint)}
+tr.nega td{background:var(--nega)}
+.time-col{white-space:nowrap;font-weight:700;color:var(--primary)}
+.actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}
+.missing{margin-top:12px;padding:12px;border:1.5px dashed var(--primary);border-radius:10px;font-size:13px;background:var(--tint)}
+.missing b{color:var(--primary-dark);font-size:12px}
+.missing ul{margin:6px 0 0 18px}
+#loadingH,#loadingS{display:none;text-align:center;padding:24px;color:var(--sub);font-size:14px}
+.spinner{width:26px;height:26px;border:3px solid var(--line);border-top-color:var(--primary);border-radius:50%;margin:0 auto 10px;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.np-row{display:grid;grid-template-columns:1fr 1fr 34px;gap:8px;margin-bottom:8px;align-items:center}
+.store-item,.tpl-item,.hist-item{padding:10px 12px;border-top:1px solid var(--line);font-size:13px;display:flex;justify-content:space-between;gap:8px;align-items:center}
+.store-item:hover,.hist-item:hover{background:var(--tint);cursor:pointer}
+.pre{white-space:pre-wrap;font-size:13px;line-height:1.8;background:#faf7f4;border-radius:10px;padding:14px;margin-top:6px}
+.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--ink);color:#fff;padding:10px 20px;border-radius:999px;font-size:13px;opacity:0;transition:opacity .25s;pointer-events:none;z-index:9}
+.toast.show{opacity:1}
+@media(prefers-reduced-motion:reduce){.spinner{animation:none}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="eyebrow">AIBIN TOOLS</div>
+    <h1>台本メーカー v2</h1>
+    <p class="hint">URL入力→ヒアリング作成→台本制作の一気通貫。統合プレイブック v1.5 準拠。</p>
+  </header>
+
+  <div class="tabs">
+    <button id="tabBtn-hearing" class="on" onclick="showTab('hearing')">① 店舗・ヒアリング</button>
+    <button id="tabBtn-script" onclick="showTab('script')">② 台本</button>
+    <button id="tabBtn-tpl" onclick="showTab('tpl')">③ テンプレート</button>
+  </div>
+
+  <!-- ============ TAB 1: ヒアリング ============ -->
+  <div id="tab-hearing">
+    <div class="card">
+      <label class="lbl">💬 チャットで作ったヒアリングシートを取り込む</label>
+      <textarea id="hImport" rows="3" placeholder="Claudeがヒアリングシートと一緒に出力する「取り込みコード」をここに貼り付け"></textarea>
+      <button class="cta" style="background:#26201b" onclick="importHearing()">取り込む(無料・即時)</button>
+      <p class="hint">💡 正式なxlsxシートをチャットで作った場合はこちら。AIを使わないのでコストゼロです。</p>
+    </div>
+
+    <div class="card">
+      <label class="lbl">店舗のURL または 店名(ツール内で簡易ヒアリングを作る場合)</label>
+      <input id="hQuery" placeholder="Google検索URL / 公式サイトURL / 「焼肉むんち 広島」など">
+      <div class="err" id="hErr"></div>
+      <button class="cta" id="hBtn" onclick="genHearing()">AIでヒアリング下書きを作る(Web検索・20〜40秒)</button>
+      <p class="hint">💡 Webで取れる情報から武器・ネガポジ・フック案を下書きします。🔴訪問確認リストも自動で出ます。正式なxlsxヒアリングシートが必要な場合は従来どおりチャットで。</p>
+    </div>
+    <div class="card" id="loadingH"><div class="spinner"></div>店舗を特定してリサーチ中…</div>
+
+    <div class="card" id="hForm" style="display:none">
+      <div class="row3">
+        <div><label class="lbl">店名</label><input id="f_name"></div>
+        <div><label class="lbl">エリア</label><input id="f_area"></div>
+        <div><label class="lbl">業態</label><input id="f_genre"></div>
+      </div>
+      <div class="row3">
+        <div><label class="lbl">営業時間</label><input id="f_hours"></div>
+        <div><label class="lbl">定休日</label><input id="f_holiday"></div>
+        <div><label class="lbl">予算</label><input id="f_budget"></div>
+      </div>
+      <div class="row">
+        <div><label class="lbl">住所</label><input id="f_address"></div>
+        <div><label class="lbl">アクセス</label><input id="f_access"></div>
+      </div>
+
+      <label class="lbl">主要武器(1行1個)</label>
+      <textarea id="f_weapons" rows="4"></textarea>
+
+      <label class="lbl">ネガ→ポジ(強みで回収)</label>
+      <div id="f_np"></div>
+      <button class="ghost" onclick="addNp('','')">＋ ネガポジを追加</button>
+
+      <label class="lbl">ターゲット×シーン</label>
+      <input id="f_target">
+
+      <div class="row">
+        <div><label class="lbl">フック案(8割版・1行1案)</label><textarea id="f_h8" rows="3"></textarea></div>
+        <div><label class="lbl">フック案(業界版)</label><textarea id="f_hg" rows="3"></textarea></div>
+      </div>
+
+      <label class="lbl">1秒目の回避ワード</label>
+      <input id="f_avoid">
+
+      <div class="missing" id="f_missing"></div>
+
+      <button class="cta" onclick="saveStore()">この店舗を保存(訪問後もここを更新)</button>
+    </div>
+
+    <div class="card">
+      <h2 style="font-size:14px">保存済み店舗</h2>
+      <div id="storeList"></div>
+    </div>
+  </div>
+
+  <!-- ============ TAB 2: 台本 ============ -->
+  <div id="tab-script" style="display:none">
+    <div class="card">
+      <label class="lbl">店舗を選択</label>
+      <select id="sStore"></select>
+      <div class="row3">
+        <div>
+          <label class="lbl">アカウントタイプ</label>
+          <select id="sType">
+            <option value="A">A: インフルエンサー用(ume)</option>
+            <option value="B">B: 店舗公式用</option>
+          </select>
+        </div>
+        <div>
+          <label class="lbl">構文パターン</label>
+          <select id="sPattern"></select>
+        </div>
+        <div>
+          <label class="lbl">尺</label>
+          <select id="sDuration"><option>15秒前後</option><option selected>25秒前後</option><option>35秒前後</option></select>
+        </div>
+      </div>
+      <label class="lbl">テンプレート(任意)</label>
+      <select id="sTpl"></select>
+      <label class="lbl">撮影済み素材メモ(任意・貼ると素材にある映像だけで構成)</label>
+      <textarea id="sMaterial" rows="3" placeholder="・外観(夜) ・タンを網に乗せる手元 ・脂が跳ねる瞬間 …"></textarea>
+      <div class="err" id="sErr"></div>
+      <button class="cta" id="sBtn" onclick="genScript()">台本を作る</button>
+    </div>
+    <div class="card" id="loadingS"><div class="spinner"></div>プレイブック準拠で構成中…(10〜20秒)</div>
+
+    <div class="card" id="sResult" style="display:none">
+      <h2 id="rTitle" style="font-size:16px"></h2>
+      <div style="margin-top:4px"><span class="pill" id="rPattern"></span><span class="hint" id="rReason" style="display:inline"></span></div>
+      <div class="sec-label">冒頭フック(2案)</div>
+      <div id="rHooks"></div>
+      <div class="sec-label">キャッチコピー 8割版(1秒目用・15文字以内)</div>
+      <div id="rC8"></div>
+      <div class="sec-label">キャッチコピー 業界版(キャプション・第2幕用)</div>
+      <div id="rCg"></div>
+      <div class="sec-label">カット表(黄色行=ネガ挟み/テロップは直接編集可)</div>
+      <div style="overflow-x:auto">
+        <table><thead><tr><th>秒数</th><th>映像(撮影指示)</th><th>テロップ</th><th>編集メモ</th></tr></thead><tbody id="rCuts"></tbody></table>
+      </div>
+      <div class="missing" id="rMissing" style="display:none"></div>
+      <div class="sec-label">キャプション骨子</div>
+      <div class="pre" id="rCaption"></div>
+      <div class="actions">
+        <button class="ghost primary" onclick="copyTelops()">📋 テロップだけ一括コピー</button>
+        <button class="ghost" onclick="copyCaption()">キャプションをコピー</button>
+        <button class="ghost" onclick="copyAll()">台本全体をコピー</button>
+        <button class="ghost" onclick="genScript()">🔁 別案を出す</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2 style="font-size:14px">履歴(この端末に最新20件)</h2>
+      <div id="histList"></div>
+    </div>
+  </div>
+
+  <!-- ============ TAB 3: テンプレート ============ -->
+  <div id="tab-tpl" style="display:none">
+    <div class="card">
+      <h2 style="font-size:15px">テンプレートを追加</h2>
+      <p class="hint">台本生成時にAIへ渡す追加ルールです。例:「Vlog型: ナレーション主体・テロップは補足のみ・一人称で回る」「記念日特化: 第2幕を物語に全振り・CTAは予約方法の保存誘導」など。今後どんどん増やせます。</p>
+      <label class="lbl">テンプレート名</label>
+      <input id="tName" placeholder="例: 深夜〆メシ型">
+      <label class="lbl">ルール本文(AIに渡す指示)</label>
+      <textarea id="tRules" rows="5" placeholder="例: 深夜視聴者向け。「今から行ける」を軸に、営業時間を第1幕で提示。保存誘導CTA「保存して夜中に見て」で締める。"></textarea>
+      <button class="cta" onclick="addTpl()">テンプレートを保存</button>
+    </div>
+    <div class="card">
+      <h2 style="font-size:14px">保存済みテンプレート</h2>
+      <div id="tplList"></div>
+    </div>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+const $ = id => document.getElementById(id);
+const PATTERNS = ['おまかせ','ギャップ構文型','結局これが一番型','騙されたと思って型','数字・スコア型','有名人権威型','ネガティブ→回収型','権威＋意外性型','逆境サバイバル型','沼る・中毒性型','保証型'];
+const K = { stores: 'aibin_v2_stores', tpls: 'aibin_v2_tpls', hist: 'aibin_v2_hist' };
+const load = k => JSON.parse(localStorage.getItem(k) || '[]');
+const save = (k, v) => localStorage.setItem(k, JSON.stringify(v));
+let currentHearing = null, editingStoreId = null, currentScript = null;
+
+/* ---------- タブ ---------- */
+function showTab(t) {
+  for (const x of ['hearing','script','tpl']) {
+    $('tab-' + x).style.display = x === t ? 'block' : 'none';
+    $('tabBtn-' + x).classList.toggle('on', x === t);
+  }
+}
+
+/* ---------- API ---------- */
+async function api(task, input) {
+  const res = await fetch('/api/daihon-generate', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ task, input }),
+  });
+  const text = await res.text();
+  let data;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    // JSONでない(HTMLエラーページ等)場合
+    if (res.status === 502 || res.status === 504 || /timeout|time-out/i.test(text)) {
+      throw new Error('サーバー側で時間切れになりました。もう一度お試しいただくか、ヒアリングはチャットで作成してください。');
+    }
+    throw new Error(`サーバーエラー(${res.status})。少し待って再度お試しください。`);
+  }
+  if (!res.ok) throw new Error(data.error || '生成に失敗しました');
+  if (data.parseError) throw new Error('AIの出力が乱れました。もう一度「台本を作る」を押してください(繰り返す場合はご連絡を)。');
+  return data;
+}
+
+/* ---------- チャット製シートの取り込み ---------- */
+function importHearing() {
+  const raw = $('hImport').value.trim();
+  if (!raw) return toast('取り込みコードを貼り付けてください');
+  try {
+    const cleaned = raw.replace(/```json|```/g, '').trim();
+    const h = JSON.parse(cleaned.slice(cleaned.indexOf('{'), cleaned.lastIndexOf('}') + 1));
+    if (!h.store?.name) throw new Error();
+    currentHearing = h; editingStoreId = null;
+    fillForm(h);
+    $('hImport').value = '';
+    toast('取り込みました。内容を確認して保存してください');
+  } catch {
+    toast('取り込みコードの形式が正しくありません');
+  }
+}
+
+/* ---------- ヒアリング ---------- */
+async function genHearing() {
+  const q = $('hQuery').value.trim();
+  if (!q) return showErr('hErr', '店舗URLまたは店名を入力してください');
+  showErr('hErr', '');
+  $('hBtn').disabled = true; $('loadingH').style.display = 'block';
+  try {
+    const { hearing } = await api('hearing', { query: q });
+    currentHearing = hearing; editingStoreId = null;
+    fillForm(hearing);
+    toast('下書きができました。内容を確認・修正して保存してください');
+  } catch (e) { showErr('hErr', e.message); }
+  finally { $('hBtn').disabled = false; $('loadingH').style.display = 'none'; }
+}
+
+function fillForm(h) {
+  const s = h.store || {};
+  for (const k of ['name','area','genre','hours','holiday','budget','address','access']) $('f_' + k).value = s[k] || '';
+  $('f_weapons').value = (h.weapons || []).join('\n');
+  $('f_np').innerHTML = '';
+  (h.negapoji || []).forEach(np => addNp(np.nega, np.posi));
+  if (!(h.negapoji || []).length) addNp('', '');
+  $('f_target').value = h.target || '';
+  $('f_h8').value = (h.hooks_8wari || []).join('\n');
+  $('f_hg').value = (h.hooks_gyokai || []).join('\n');
+  $('f_avoid').value = (h.avoid_words || []).join('、');
+  const miss = h.missing || [];
+  $('f_missing').innerHTML = '<b>🔴 訪問時に必ず確認</b><ul>' + miss.map(m => `<li>${esc(m)}</li>`).join('') + '</ul>';
+  $('hForm').style.display = 'block';
+  $('hForm').scrollIntoView({ behavior: 'smooth' });
+}
+
+function addNp(n, p) {
+  const div = document.createElement('div');
+  div.className = 'np-row';
+  div.innerHTML = `<input placeholder="ネガ" value="${esc(n)}"><input placeholder="→ポジ(事実の強みで回収)" value="${esc(p)}"><button class="ghost danger" onclick="this.parentNode.remove()">×</button>`;
+  $('f_np').appendChild(div);
+}
+
+function readForm() {
+  const g = id => $(id).value.trim();
+  const lines = id => g(id).split('\n').map(x => x.trim()).filter(Boolean);
+  return {
+    store: { name: g('f_name'), area: g('f_area'), genre: g('f_genre'), hours: g('f_hours'), holiday: g('f_holiday'), budget: g('f_budget'), address: g('f_address'), access: g('f_access') },
+    weapons: lines('f_weapons'),
+    negapoji: [...$('f_np').querySelectorAll('.np-row')].map(r => {
+      const [n, p] = r.querySelectorAll('input');
+      return { nega: n.value.trim(), posi: p.value.trim() };
+    }).filter(x => x.nega || x.posi),
+    target: g('f_target'),
+    hooks_8wari: lines('f_h8'),
+    hooks_gyokai: lines('f_hg'),
+    avoid_words: g('f_avoid').split('、').map(x => x.trim()).filter(Boolean),
+    missing: currentHearing?.missing || [],
+  };
+}
+
+function saveStore() {
+  const h = readForm();
+  if (!h.store.name) return toast('店名が空です');
+  const stores = load(K.stores);
+  if (editingStoreId) {
+    const i = stores.findIndex(s => s.id === editingStoreId);
+    if (i >= 0) stores[i] = { ...stores[i], hearing: h, updatedAt: Date.now() };
+  } else {
+    stores.unshift({ id: 'st' + Date.now(), hearing: h, updatedAt: Date.now() });
+  }
+  save(K.stores, stores);
+  renderStores(); toast('保存しました');
+}
+
+function renderStores() {
+  const stores = load(K.stores);
+  $('storeList').innerHTML = stores.length ? stores.map(s =>
+    `<div class="store-item" onclick="editStore('${s.id}')"><span><b>${esc(s.hearing.store.name)}</b> <span class="hint" style="display:inline">${esc(s.hearing.store.genre || '')}</span></span><button class="ghost danger" onclick="event.stopPropagation();delStore('${s.id}')">削除</button></div>`).join('')
+    : '<p class="hint">まだ店舗がありません。上でURL/店名から作成してください。</p>';
+  $('sStore').innerHTML = stores.length ? stores.map(s => `<option value="${s.id}">${esc(s.hearing.store.name)}</option>`).join('') : '<option value="">先に①で店舗を作成</option>';
+}
+
+function editStore(id) {
+  const s = load(K.stores).find(x => x.id === id);
+  if (!s) return;
+  editingStoreId = id; currentHearing = s.hearing;
+  fillForm(s.hearing);
+}
+
+function delStore(id) {
+  if (!confirm('この店舗を削除しますか?')) return;
+  save(K.stores, load(K.stores).filter(s => s.id !== id));
+  renderStores();
+}
+
+/* ---------- テンプレート ---------- */
+function addTpl() {
+  const name = $('tName').value.trim(), rules = $('tRules').value.trim();
+  if (!name || !rules) return toast('名前とルール本文を入力してください');
+  const tpls = load(K.tpls);
+  tpls.unshift({ id: 'tp' + Date.now(), name, rules });
+  save(K.tpls, tpls);
+  $('tName').value = ''; $('tRules').value = '';
+  renderTpls(); toast('テンプレートを保存しました');
+}
+
+function renderTpls() {
+  const tpls = load(K.tpls);
+  $('tplList').innerHTML = tpls.length ? tpls.map(t =>
+    `<div class="tpl-item"><span><b>${esc(t.name)}</b><br><span class="hint" style="display:inline">${esc(t.rules.slice(0, 60))}…</span></span><button class="ghost danger" onclick="delTpl('${t.id}')">削除</button></div>`).join('')
+    : '<p class="hint">まだテンプレートがありません。</p>';
+  $('sTpl').innerHTML = '<option value="">なし(標準ルールのみ)</option>' + tpls.map(t => `<option value="${t.id}">${esc(t.name)}</option>`).join('');
+}
+
+function delTpl(id) {
+  save(K.tpls, load(K.tpls).filter(t => t.id !== id));
+  renderTpls();
+}
+
+/* ---------- 台本生成 ---------- */
+async function genScript() {
+  const store = load(K.stores).find(s => s.id === $('sStore').value);
+  if (!store) return showErr('sErr', '先に①タブで店舗を作成・保存してください');
+  showErr('sErr', '');
+  $('sBtn').disabled = true; $('loadingS').style.display = 'block'; $('sResult').style.display = 'none';
+  const tpl = load(K.tpls).find(t => t.id === $('sTpl').value);
+  try {
+    const { script } = await api('script', {
+      hearing: store.hearing,
+      accountType: $('sType').value,
+      pattern: $('sPattern').value === 'おまかせ' ? '' : $('sPattern').value,
+      duration: $('sDuration').value,
+      material: $('sMaterial').value,
+      extraRules: tpl ? `${tpl.name}: ${tpl.rules}` : '',
+    });
+    if (!script) throw new Error('台本が生成されませんでした。もう一度お試しください。');
+    currentScript = { script, storeName: store.hearing.store.name, type: $('sType').value, at: new Date().toISOString() };
+    renderScript();
+    const hist = load(K.hist); hist.unshift(currentScript); save(K.hist, hist.slice(0, 20)); renderHist();
+  } catch (e) { showErr('sErr', e.message); }
+  finally { $('sBtn').disabled = false; $('loadingS').style.display = 'none'; }
+}
+
+function renderScript() {
+  const s = currentScript.script;
+  $('rTitle').textContent = `${currentScript.storeName}(タイプ${currentScript.type})の台本`;
+  $('rPattern').textContent = s.pattern || '';
+  $('rReason').textContent = s.pattern_reason || '';
+  $('rHooks').innerHTML = (s.hooks || []).map((h, i) => `<div class="copy-opt"><span><b>案${i + 1}</b>　${esc(h)}</span></div>`).join('');
+  const copyRow = c => `<div class="copy-opt"><b>「${esc(c.text)}」</b><span class="chars">${c.chars}文字 <button class="ghost" onclick="copyText('${esc(c.text)}')">コピー</button></span></div>`;
+  $('rC8').innerHTML = (s.catchcopies_8wari || []).map(copyRow).join('');
+  $('rCg').innerHTML = (s.catchcopies_gyokai || []).map(copyRow).join('');
+  $('rCuts').innerHTML = (s.cuts || []).map(c =>
+    `<tr class="${c.is_nega ? 'nega' : ''}"><td class="time-col">${esc(c.time)}</td><td>${esc(c.footage)}</td><td contenteditable="true">${esc(c.telop)}</td><td>${esc(c.note || '')}</td></tr>`).join('');
+  const miss = s.missing_footage || [];
+  $('rMissing').style.display = miss.length ? 'block' : 'none';
+  $('rMissing').innerHTML = miss.length ? `<b>📷 追加で撮ると良い素材</b><ul>${miss.map(m => `<li>${esc(m)}</li>`).join('')}</ul>` : '';
+  $('rCaption').textContent = s.caption_skeleton || '';
+  $('sResult').style.display = 'block';
+  $('sResult').scrollIntoView({ behavior: 'smooth' });
+}
+
+function renderHist() {
+  const hist = load(K.hist);
+  $('histList').innerHTML = hist.length ? hist.map((x, i) =>
+    `<div class="hist-item" onclick="loadHist(${i})"><span>${esc(x.storeName)} <span class="hint" style="display:inline">タイプ${x.type}/${esc(x.script.pattern || '')}</span></span><span class="hint" style="display:inline">${new Date(x.at).toLocaleString('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span></div>`).join('')
+    : '<p class="hint">まだ履歴がありません</p>';
+}
+
+function loadHist(i) {
+  currentScript = load(K.hist)[i];
+  if (currentScript) { showTab('script'); renderScript(); }
+}
+
+/* ---------- コピー ---------- */
+function copyTelops() {
+  const telops = [...$('rCuts').querySelectorAll('td[contenteditable]')].map(td => td.textContent.trim()).filter(Boolean);
+  navigator.clipboard.writeText(telops.join('\n'));
+  toast(`テロップ${telops.length}行をコピーしました`);
+}
+function copyCaption() { navigator.clipboard.writeText($('rCaption').textContent); toast('キャプションをコピーしました'); }
+function copyAll() {
+  const s = currentScript.script;
+  const rows = [...$('rCuts').querySelectorAll('tr')].map(tr => [...tr.children].map(td => td.textContent.trim()).join(' | '));
+  const text = [
+    `■ ${currentScript.storeName}(タイプ${currentScript.type}/${s.pattern})`, s.pattern_reason, '',
+    '【フック案】', ...(s.hooks || []).map((h, i) => `${i + 1}. ${h}`), '',
+    '【キャッチコピー 8割版】', ...(s.catchcopies_8wari || []).map(c => `「${c.text}」(${c.chars}文字)`),
+    '【キャッチコピー 業界版】', ...(s.catchcopies_gyokai || []).map(c => `「${c.text}」(${c.chars}文字)`), '',
+    '【カット表】秒数 | 映像 | テロップ | 編集メモ', ...rows, '',
+    '【キャプション骨子】', s.caption_skeleton || '',
+    ...(s.missing_footage?.length ? ['', '【追加で撮ると良い素材】', ...s.missing_footage.map(m => '・' + m)] : []),
+  ].join('\n');
+  navigator.clipboard.writeText(text);
+  toast('台本全体をコピーしました');
+}
+function copyText(t) { navigator.clipboard.writeText(t); toast('コピーしました'); }
+
+/* ---------- util ---------- */
+function esc(s) { return String(s ?? '').replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m])); }
+function showErr(id, m) { const e = $(id); e.textContent = m; e.style.display = m ? 'block' : 'none'; }
+let toastTimer;
+function toast(m) { const t = $('toast'); t.textContent = m; t.classList.add('show'); clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('show'), 2000); }
+
+$('sPattern').innerHTML = PATTERNS.map(p => `<option>${p}</option>`).join('');
+renderStores(); renderTpls(); renderHist();
+
+/* ---------- 管制塔などからの紐付け(URLパラメータ) ----------
+   ?store=店名 : 保存済みならその店を選択して②台本タブへ / 未保存なら①に店名をセット
+   ?q=検索語   : ①ヒアリングタブの入力欄にセット */
+(function () {
+  const params = new URLSearchParams(location.search);
+  const name = params.get('store');
+  const q = params.get('q');
+  if (name) {
+    const st = load(K.stores).find(s => s.hearing.store.name === name);
+    if (st) {
+      showTab('script');
+      $('sStore').value = st.id;
+      toast(`${name} を選択しました`);
+    } else {
+      $('hQuery').value = name + ' 広島';
+      toast('未登録の店舗です。まずヒアリングを作成してください');
+    }
+  } else if (q) {
+    $('hQuery').value = q;
+  }
+})();
+</script>
+</body>
+</html>
