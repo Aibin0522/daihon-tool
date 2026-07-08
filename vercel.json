@@ -1,1 +1,7 @@
-{"functions":{"api/daihon-generate.js":{"maxDuration":60}}}
+{
+  "functions": {
+    "api/daihon-generate.js": {
+      "maxDuration": 60
+    }
+  }
+}

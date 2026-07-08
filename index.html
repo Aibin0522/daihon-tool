@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="robots" content="noindex">
-<title>Aibin 台本メーカー v2</title>
+<title>Aibin 台本メーカー v3</title>
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700;900&display=swap" rel="stylesheet">
 <style>
 :root{--ink:#26201b;--sub:#8a7f76;--line:#e8e1da;--primary:#b8432f;--primary-dark:#9a3524;--tint:#fbf1ee;--paper:#fffdfb;--nega:#fff3cd}
@@ -48,7 +48,16 @@ tr.nega td{background:var(--nega)}
 .missing{margin-top:12px;padding:12px;border:1.5px dashed var(--primary);border-radius:10px;font-size:13px;background:var(--tint)}
 .missing b{color:var(--primary-dark);font-size:12px}
 .missing ul{margin:6px 0 0 18px}
-#loadingH,#loadingS{display:none;text-align:center;padding:24px;color:var(--sub);font-size:14px}
+#loadingH,#loadingS,#loadingP{display:none;text-align:center;padding:24px;color:var(--sub);font-size:14px}
+.case-card{border:1.5px solid var(--line);border-radius:12px;padding:14px;margin-bottom:12px}
+.case-head{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap}
+.case-label{font-weight:900;font-size:15px;color:var(--primary)}
+.case-type-A{color:var(--primary)}.case-type-B{color:#2e6da4}
+.verdict-btns{display:flex;gap:6px}
+.verdict-btns button{font:inherit;font-size:12px;padding:5px 12px;border-radius:999px;border:1.5px solid var(--line);background:#fff;cursor:pointer}
+.verdict-btns button.adopted{background:#e6f4ea;border-color:#34a853;color:#188038;font-weight:700}
+.verdict-btns button.rejected{background:#fce8e6;border-color:#d93025;color:#c5221f;font-weight:700}
+.order-pill{display:inline-flex;align-items:center;gap:4px;background:var(--tint);border-radius:8px;padding:6px 10px;margin:0 6px 6px 0;font-size:13px;font-weight:700}
 .spinner{width:26px;height:26px;border:3px solid var(--line);border-top-color:var(--primary);border-radius:50%;margin:0 auto 10px;animation:spin .8s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
 .np-row{display:grid;grid-template-columns:1fr 1fr 34px;gap:8px;margin-bottom:8px;align-items:center}
@@ -64,7 +73,7 @@ tr.nega td{background:var(--nega)}
 <div class="wrap">
   <header>
     <div class="eyebrow">AIBIN TOOLS</div>
-    <h1>台本メーカー v2</h1>
+    <h1>台本メーカー v3</h1>
     <p class="hint">URL入力→ヒアリング作成→台本制作の一気通貫。統合プレイブック v1.5 準拠。</p>
   </header>
 
@@ -161,12 +170,32 @@ tr.nega td{background:var(--nega)}
       </div>
       <label class="lbl">テンプレート(任意)</label>
       <select id="sTpl"></select>
+      <label class="lbl">今回の狙い・季節/限定訴求(任意)</label>
+      <input id="sSeasonal" placeholder="例: 夏限定の白桃パフェ(1,480円)を推したい。8月末まで">
       <label class="lbl">撮影済み素材メモ(任意・貼ると素材にある映像だけで構成)</label>
       <textarea id="sMaterial" rows="3" placeholder="・外観(夜) ・タンを網に乗せる手元 ・脂が跳ねる瞬間 …"></textarea>
       <div class="err" id="sErr"></div>
-      <button class="cta" id="sBtn" onclick="genScript()">台本を作る</button>
+      <div class="row">
+        <button class="cta" id="sBtn" onclick="genScript()">台本を1本作る</button>
+        <button class="cta" id="pBtn" style="background:var(--ink)" onclick="genPack()">6案パックを作る(A×3・B×3)</button>
+      </div>
+      <p class="hint">💡 6案パックは馬場ちゃん形式。フックの型を全部変えて投下順まで提示します(30〜50秒)。</p>
     </div>
     <div class="card" id="loadingS"><div class="spinner"></div>プレイブック準拠で構成中…(10〜20秒)</div>
+    <div class="card" id="loadingP"><div class="spinner"></div>6案パックを構成中…(30〜50秒)</div>
+
+    <!-- 6案パック結果 -->
+    <div class="card" id="pResult" style="display:none">
+      <h2 id="pTitle" style="font-size:16px"></h2>
+      <div class="pre" id="pStrategy" style="margin-top:8px"></div>
+      <div class="sec-label">推奨投下順</div>
+      <div id="pOrder"></div>
+      <div class="sec-label">6案(各案に採用/ボツとフィードバックを記録できます)</div>
+      <div id="pCases"></div>
+      <div class="actions">
+        <button class="ghost" onclick="openFeedbackList()">📊 フィードバック一覧を見る</button>
+      </div>
+    </div>
 
     <div class="card" id="sResult" style="display:none">
       <h2 id="rTitle" style="font-size:16px"></h2>
@@ -402,6 +431,7 @@ async function genScript() {
       pattern: $('sPattern').value === 'おまかせ' ? '' : $('sPattern').value,
       duration: $('sDuration').value,
       material: $('sMaterial').value,
+      seasonal: $('sSeasonal').value,
       extraRules: tpl ? `${tpl.name}: ${tpl.rules}` : '',
     });
     if (!script) throw new Error('台本が生成されませんでした。もう一度お試しください。');
@@ -410,6 +440,135 @@ async function genScript() {
     const hist = load(K.hist); hist.unshift(currentScript); save(K.hist, hist.slice(0, 20)); renderHist();
   } catch (e) { showErr('sErr', e.message); }
   finally { $('sBtn').disabled = false; $('loadingS').style.display = 'none'; }
+}
+
+/* ---------- 6案パック生成 ---------- */
+let currentPack = null, currentRunId = null;
+
+async function genPack() {
+  const store = load(K.stores).find(s => s.id === $('sStore').value);
+  if (!store) return showErr('sErr', '先に①タブで店舗を作成・保存してください');
+  showErr('sErr', '');
+  $('pBtn').disabled = true; $('sBtn').disabled = true;
+  $('loadingP').style.display = 'block'; $('pResult').style.display = 'none'; $('sResult').style.display = 'none';
+  const tpl = load(K.tpls).find(t => t.id === $('sTpl').value);
+  try {
+    const { pack, parseError } = await api('pack', {
+      hearing: store.hearing,
+      duration: $('sDuration').value,
+      material: $('sMaterial').value,
+      seasonal: $('sSeasonal').value,
+      extraRules: tpl ? `${tpl.name}: ${tpl.rules}` : '',
+    });
+    if (parseError || !pack) throw new Error('6案パックの生成が乱れました。もう一度お試しください。');
+    currentPack = { pack, storeName: store.hearing.store.name, at: new Date().toISOString() };
+    currentRunId = null;
+    renderPack();
+    // Supabaseに生成記録を保存(フィードバック紐付け用)。失敗しても続行
+    saveRun(store.hearing.store.name, pack);
+  } catch (e) { showErr('sErr', e.message); }
+  finally { $('pBtn').disabled = false; $('sBtn').disabled = false; $('loadingP').style.display = 'none'; }
+}
+
+function renderPack() {
+  const p = currentPack.pack;
+  $('pTitle').textContent = `${currentPack.storeName} の6案パック`;
+  $('pStrategy').textContent = p.strategy_summary || '';
+  $('pOrder').innerHTML = (p.post_order || []).map((o, i) =>
+    `<span class="order-pill">${i + 1}. ${esc(o)}</span>`).join('');
+  $('pCases').innerHTML = (p.cases || []).map((c, idx) => caseCardHtml(c, idx)).join('');
+  $('pResult').style.display = 'block';
+  $('pResult').scrollIntoView({ behavior: 'smooth' });
+}
+
+function caseCardHtml(c, idx) {
+  const cuts = (c.cuts || []).map(x =>
+    `<tr class="${x.is_nega ? 'nega' : ''}"><td class="time-col">${esc(x.time)}</td><td>${esc(x.footage)}</td><td contenteditable="true" data-case="${idx}">${esc(x.telop)}</td></tr>`).join('');
+  const copies = (c.catchcopies_8wari || []).map(x => `「${esc(x.text)}」(${x.chars}字)`).join(' / ');
+  return `<div class="case-card" id="case-${idx}">
+    <div class="case-head">
+      <span><span class="case-label case-type-${esc(c.type)}">${esc(c.label)}</span> <span class="pill">${esc(c.pattern)}</span></span>
+      <div class="verdict-btns">
+        <button id="adopt-${idx}" onclick="setVerdict(${idx},'adopted')">採用</button>
+        <button id="reject-${idx}" onclick="setVerdict(${idx},'rejected')">ボツ</button>
+      </div>
+    </div>
+    <div class="hint" style="margin-top:6px"><b>フック:</b> ${esc(c.hook)}</div>
+    <div class="hint"><b>コピー:</b> ${copies}</div>
+    <div style="overflow-x:auto;margin-top:8px">
+      <table><thead><tr><th>秒数</th><th>映像</th><th>テロップ(編集可)</th></tr></thead><tbody>${cuts}</tbody></table>
+    </div>
+    <details style="margin-top:8px"><summary class="hint" style="cursor:pointer">キャプション骨子・武器の説明を見る</summary>
+      <div class="pre" style="margin-top:6px">${esc(c.caption_skeleton || '')}</div>
+      <div class="hint" style="margin-top:6px"><b>武器・構文:</b> ${esc(c.weapon_explanation || '')}</div>
+    </details>
+    <div style="margin-top:8px">
+      <input id="fbcomment-${idx}" placeholder="この案へのフィードバック(任意)" style="font-size:13px">
+      <div class="actions" style="margin-top:6px">
+        <button class="ghost" onclick="copyCaseTelops(${idx})">📋 テロップコピー</button>
+        <button class="ghost primary" onclick="saveCaseFeedback(${idx})">💾 フィードバックを保存</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+function setVerdict(idx, verdict) {
+  const c = currentPack.pack.cases[idx];
+  c._verdict = verdict;
+  $(`adopt-${idx}`).classList.toggle('adopted', verdict === 'adopted');
+  $(`reject-${idx}`).classList.toggle('rejected', verdict === 'rejected');
+}
+
+function copyCaseTelops(idx) {
+  const telops = [...document.querySelectorAll(`#case-${idx} td[contenteditable]`)].map(td => td.textContent.trim()).filter(Boolean);
+  navigator.clipboard.writeText(telops.join('\n'));
+  toast(`${currentPack.pack.cases[idx].label} のテロップ${telops.length}行をコピー`);
+}
+
+/* ---------- Supabaseフィードバック ---------- */
+async function fbApi(action, body) {
+  const res = await fetch('/api/feedback', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ action, ...body }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'フィードバックAPIエラー');
+  return data;
+}
+
+async function saveRun(storeName, pack) {
+  try {
+    const { run } = await fbApi('save_run', {
+      store_name: storeName, account_type: 'pack', payload: pack,
+    });
+    currentRunId = run?.id || null;
+  } catch (e) { /* Supabase未設定でも生成自体は使えるので握りつぶす */ console.warn(e.message); }
+}
+
+async function saveCaseFeedback(idx) {
+  const c = currentPack.pack.cases[idx];
+  const verdict = c._verdict || 'pending';
+  const comment = $(`fbcomment-${idx}`).value.trim();
+  try {
+    await fbApi('save_feedback', {
+      run_id: currentRunId, store_name: currentPack.storeName,
+      case_label: c.label, pattern: c.pattern, verdict, comment,
+      staff_name: localStorage.getItem('aibin_staff_name') || null,
+    });
+    toast(`${c.label} のフィードバックを保存しました`);
+  } catch (e) {
+    toast('保存失敗: ' + e.message);
+  }
+}
+
+async function openFeedbackList() {
+  try {
+    const { feedbacks } = await fbApi('list', { store_name: currentPack?.storeName });
+    if (!feedbacks?.length) return toast('まだフィードバックがありません');
+    const lines = feedbacks.map(f =>
+      `${f.case_label || '-'} [${f.verdict}] ${f.pattern || ''} ${f.comment ? '｜' + f.comment : ''}`).join('\n');
+    alert(`【${currentPack?.storeName} のフィードバック(最新200件)】\n\n` + lines);
+  } catch (e) { toast(e.message); }
 }
 
 function renderScript() {
