@@ -175,14 +175,15 @@ tr.nega td{background:var(--nega)}
       <label class="lbl">撮影済み素材メモ(任意・貼ると素材にある映像だけで構成)</label>
       <textarea id="sMaterial" rows="3" placeholder="・外観(夜) ・タンを網に乗せる手元 ・脂が跳ねる瞬間 …"></textarea>
       <div class="err" id="sErr"></div>
-      <div class="row">
-        <button class="cta" id="sBtn" onclick="genScript()">台本を1本作る</button>
-        <button class="cta" id="pBtn" style="background:var(--ink)" onclick="genPack()">6案パックを作る(A×3・B×3)</button>
+      <button class="cta" id="sBtn" onclick="genScript()">台本を1本作る</button>
+      <div class="row" style="margin-top:10px">
+        <button class="cta" id="pBtnA" style="background:var(--ink)" onclick="genPack('A')">Aタイプ3案(ume用)</button>
+        <button class="cta" id="pBtnB" style="background:#2e6da4" onclick="genPack('B')">Bタイプ3案(店舗公式用)</button>
       </div>
-      <p class="hint">💡 6案パックは馬場ちゃん形式。フックの型を全部変えて投下順まで提示します(30〜50秒)。</p>
+      <p class="hint">💡 3案ずつフックの型を変えて生成(20〜35秒)。Aだけ・Bだけ量産も、両方出して6案そろえるのもOK。</p>
     </div>
     <div class="card" id="loadingS"><div class="spinner"></div>プレイブック準拠で構成中…(10〜20秒)</div>
-    <div class="card" id="loadingP"><div class="spinner"></div>6案パックを構成中…(30〜50秒)</div>
+    <div class="card" id="loadingP"><div class="spinner"></div>3案を構成中…(20〜35秒)</div>
 
     <!-- 6案パック結果 -->
     <div class="card" id="pResult" style="display:none">
@@ -248,7 +249,7 @@ tr.nega td{background:var(--nega)}
 
 <script>
 const $ = id => document.getElementById(id);
-const PATTERNS = ['おまかせ','ギャップ構文型','結局これが一番型','騙されたと思って型','数字・スコア型','有名人権威型','ネガティブ→回収型','権威＋意外性型','逆境サバイバル型','沼る・中毒性型','保証型'];
+const PATTERNS = ['おまかせ','ギャップ裏切り型★実証済み','ギャップ構文型','結局これが一番型','騙されたと思って型','数字・スコア型','有名人権威型','ネガティブ→回収型','権威＋意外性型','逆境サバイバル型','沼る・中毒性型','保証型'];
 const K = { stores: 'aibin_v2_stores', tpls: 'aibin_v2_tpls', hist: 'aibin_v2_hist' };
 const load = k => JSON.parse(localStorage.getItem(k) || '[]');
 const save = (k, v) => localStorage.setItem(k, JSON.stringify(v));
@@ -445,38 +446,58 @@ async function genScript() {
 /* ---------- 6案パック生成 ---------- */
 let currentPack = null, currentRunId = null;
 
-async function genPack() {
+async function genPack(packType) {
   const store = load(K.stores).find(s => s.id === $('sStore').value);
   if (!store) return showErr('sErr', '先に①タブで店舗を作成・保存してください');
   showErr('sErr', '');
-  $('pBtn').disabled = true; $('sBtn').disabled = true;
-  $('loadingP').style.display = 'block'; $('pResult').style.display = 'none'; $('sResult').style.display = 'none';
+  $('pBtnA').disabled = true; $('pBtnB').disabled = true; $('sBtn').disabled = true;
+  $('loadingP').style.display = 'block'; $('sResult').style.display = 'none';
   const tpl = load(K.tpls).find(t => t.id === $('sTpl').value);
   try {
     const { pack, parseError } = await api('pack', {
       hearing: store.hearing,
+      packType,
       duration: $('sDuration').value,
       material: $('sMaterial').value,
       seasonal: $('sSeasonal').value,
       extraRules: tpl ? `${tpl.name}: ${tpl.rules}` : '',
     });
-    if (parseError || !pack) throw new Error('6案パックの生成が乱れました。もう一度お試しください。');
-    currentPack = { pack, storeName: store.hearing.store.name, at: new Date().toISOString() };
+    if (parseError || !pack) throw new Error('3案の生成が乱れました。もう一度お試しください。');
+    // 既に別タイプを出していれば結合、なければ新規
+    if (currentPack && currentPack.storeName === store.hearing.store.name) {
+      const existing = currentPack.pack.cases.filter(c => c.type !== packType);
+      currentPack.pack.cases = [...existing, ...(pack.cases || [])];
+      currentPack.pack.strategy_summary = pack.strategy_summary || currentPack.pack.strategy_summary;
+    } else {
+      currentPack = { pack, storeName: store.hearing.store.name, at: new Date().toISOString() };
+    }
     currentRunId = null;
     renderPack();
-    // Supabaseに生成記録を保存(フィードバック紐付け用)。失敗しても続行
-    saveRun(store.hearing.store.name, pack);
+    saveRun(store.hearing.store.name, currentPack.pack);
   } catch (e) { showErr('sErr', e.message); }
-  finally { $('pBtn').disabled = false; $('sBtn').disabled = false; $('loadingP').style.display = 'none'; }
+  finally { $('pBtnA').disabled = false; $('pBtnB').disabled = false; $('sBtn').disabled = false; $('loadingP').style.display = 'none'; }
 }
 
 function renderPack() {
   const p = currentPack.pack;
-  $('pTitle').textContent = `${currentPack.storeName} の6案パック`;
+  const cases = p.cases || [];
+  const aCases = cases.filter(c => c.type === 'A');
+  const bCases = cases.filter(c => c.type === 'B');
+  $('pTitle').textContent = `${currentPack.storeName} の台本案(${cases.length}案)`;
   $('pStrategy').textContent = p.strategy_summary || '';
-  $('pOrder').innerHTML = (p.post_order || []).map((o, i) =>
-    `<span class="order-pill">${i + 1}. ${esc(o)}</span>`).join('');
-  $('pCases').innerHTML = (p.cases || []).map((c, idx) => caseCardHtml(c, idx)).join('');
+  // 投下順: A・B両方あれば交互、片方だけならそのまま
+  let order = [];
+  if (aCases.length && bCases.length) {
+    const max = Math.max(aCases.length, bCases.length);
+    for (let i = 0; i < max; i++) {
+      if (aCases[i]) order.push(aCases[i].label);
+      if (bCases[i]) order.push(bCases[i].label);
+    }
+  } else {
+    order = cases.map(c => c.label);
+  }
+  $('pOrder').innerHTML = order.map((o, i) => `<span class="order-pill">${i + 1}. ${esc(o)}</span>`).join('');
+  $('pCases').innerHTML = cases.map((c, idx) => caseCardHtml(c, idx)).join('');
   $('pResult').style.display = 'block';
   $('pResult').scrollIntoView({ behavior: 'smooth' });
 }
