@@ -155,8 +155,8 @@ tr.nega td{background:var(--nega)}
         <div>
           <label class="lbl">アカウントタイプ</label>
           <select id="sType">
-            <option value="A">A: インフルエンサー用(ume)</option>
-            <option value="B">B: 店舗公式用</option>
+            <option value="B" selected>店舗公式用(基本)</option>
+            <option value="A">タイアップ用(ume視点)</option>
           </select>
         </div>
         <div>
@@ -175,15 +175,11 @@ tr.nega td{background:var(--nega)}
       <label class="lbl">撮影済み素材メモ(任意・貼ると素材にある映像だけで構成)</label>
       <textarea id="sMaterial" rows="3" placeholder="・外観(夜) ・タンを網に乗せる手元 ・脂が跳ねる瞬間 …"></textarea>
       <div class="err" id="sErr"></div>
-      <button class="cta" id="sBtn" onclick="genScript()">台本を1本作る</button>
-      <div class="row" style="margin-top:10px">
-        <button class="cta" id="pBtnA" style="background:var(--ink)" onclick="genPack('A')">Aタイプ3案(ume用)</button>
-        <button class="cta" id="pBtnB" style="background:#2e6da4" onclick="genPack('B')">Bタイプ3案(店舗公式用)</button>
-      </div>
-      <p class="hint">💡 3案ずつフックの型を変えて生成(20〜35秒)。Aだけ・Bだけ量産も、両方出して6案そろえるのもOK。</p>
+      <button class="cta" id="sBtn" onclick="genScript()">台本を作る(1本ずつ)</button>
+      <p class="hint">💡 構文パターンを選んで1本ずつ生成。複数案が欲しいときはパターンを変えて繰り返し押してください(履歴に残ります)。</p>
     </div>
     <div class="card" id="loadingS"><div class="spinner"></div>プレイブック準拠で構成中…(10〜20秒)</div>
-    <div class="card" id="loadingP"><div class="spinner"></div>3案を構成中…(20〜35秒)</div>
+    <div class="card" id="loadingP" style="display:none"><div class="spinner"></div>構成中…</div>
 
     <!-- 6案パック結果 -->
     <div class="card" id="pResult" style="display:none">
@@ -249,7 +245,7 @@ tr.nega td{background:var(--nega)}
 
 <script>
 const $ = id => document.getElementById(id);
-const PATTERNS = ['おまかせ','ギャップ裏切り型★実証済み','ギャップ構文型','結局これが一番型','騙されたと思って型','数字・スコア型','有名人権威型','ネガティブ→回収型','権威＋意外性型','逆境サバイバル型','沼る・中毒性型','保証型'];
+const PATTERNS = ['おまかせ','ギャップ裏切り型★実証済み','常識破壊型','思い込み裏切り型(価格特化)','感覚崩壊型(ビジュアル衝撃)','機会損失型(ついで提案)','労力正当化型(わざわざ型)','ギャップ構文型','結局これが一番型','騙されたと思って型','数字・スコア型','有名人権威型','ネガティブ→回収型','権威＋意外性型','逆境サバイバル型','沼る・中毒性型','保証型'];
 const K = { stores: 'aibin_v2_stores', tpls: 'aibin_v2_tpls', hist: 'aibin_v2_hist' };
 const load = k => JSON.parse(localStorage.getItem(k) || '[]');
 const save = (k, v) => localStorage.setItem(k, JSON.stringify(v));
