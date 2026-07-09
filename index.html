@@ -216,6 +216,20 @@ tr.nega td{background:var(--nega)}
         <button class="ghost" onclick="copyAll()">台本全体をコピー</button>
         <button class="ghost" onclick="genScript()">🔁 別案を出す</button>
       </div>
+
+      <div class="sec-label">この台本へのフィードバック(全員共有で蓄積)</div>
+      <div class="verdict-btns" style="margin-bottom:8px">
+        <button id="sAdopt" onclick="setSingleVerdict('adopted')">✅ 採用</button>
+        <button id="sReject" onclick="setSingleVerdict('rejected')">❌ ボツ</button>
+      </div>
+      <input id="sFbComment" placeholder="コメント(例: フックが弱い / ネガ回収が秀逸 / 実際に投稿して○万再生)">
+      <div class="row" style="margin-top:8px">
+        <input id="sFbStaff" placeholder="記入者名(任意・この端末に記憶)">
+        <button class="ghost primary" onclick="saveSingleFeedback()">💾 フィードバックを保存</button>
+      </div>
+      <div class="actions">
+        <button class="ghost" onclick="openFeedbackList()">📊 この店のフィードバック一覧を見る</button>
+      </div>
     </div>
 
     <div class="card">
@@ -434,6 +448,9 @@ async function genScript() {
     if (!script) throw new Error('台本が生成されませんでした。もう一度お試しください。');
     currentScript = { script, storeName: store.hearing.store.name, type: $('sType').value, at: new Date().toISOString() };
     renderScript();
+    resetSingleFeedback();
+    currentRunId = null;
+    saveRun(store.hearing.store.name, { single: script });
     const hist = load(K.hist); hist.unshift(currentScript); save(K.hist, hist.slice(0, 20)); renderHist();
   } catch (e) { showErr('sErr', e.message); }
   finally { $('sBtn').disabled = false; $('loadingS').style.display = 'none'; }
@@ -578,13 +595,50 @@ async function saveCaseFeedback(idx) {
   }
 }
 
-async function openFeedbackList() {
+/* ---------- 単発台本フィードバック ---------- */
+let singleVerdict = 'pending';
+function setSingleVerdict(v) {
+  singleVerdict = v;
+  $('sAdopt').classList.toggle('adopted', v === 'adopted');
+  $('sReject').classList.toggle('rejected', v === 'rejected');
+}
+function resetSingleFeedback() {
+  singleVerdict = 'pending';
+  if ($('sAdopt')) { $('sAdopt').classList.remove('adopted'); $('sReject').classList.remove('rejected'); }
+  if ($('sFbComment')) $('sFbComment').value = '';
+  if ($('sFbStaff')) $('sFbStaff').value = localStorage.getItem('aibin_staff_name') || '';
+}
+async function saveSingleFeedback() {
+  if (!currentScript) return toast('先に台本を生成してください');
+  if (singleVerdict === 'pending' && !$('sFbComment').value.trim()) return toast('採用/ボツを選ぶかコメントを入力してください');
+  const staff = $('sFbStaff').value.trim();
+  if (staff) localStorage.setItem('aibin_staff_name', staff);
   try {
-    const { feedbacks } = await fbApi('list', { store_name: currentPack?.storeName });
+    await fbApi('save_feedback', {
+      run_id: currentRunId,
+      store_name: currentScript.storeName,
+      case_label: `単発/${currentScript.type}`,
+      pattern: currentScript.script.pattern || '',
+      verdict: singleVerdict,
+      comment: $('sFbComment').value.trim() || null,
+      staff_name: staff || localStorage.getItem('aibin_staff_name') || null,
+    });
+    toast('フィードバックを保存しました');
+  } catch (e) {
+    toast('保存失敗: ' + e.message);
+  }
+}
+
+async function openFeedbackList() {
+  const storeName = currentScript?.storeName || currentPack?.storeName;
+  if (!storeName) return toast('先に台本を生成してください');
+  try {
+    const { feedbacks } = await fbApi('list', { store_name: storeName });
     if (!feedbacks?.length) return toast('まだフィードバックがありません');
+    const mark = { adopted: '✅採用', rejected: '❌ボツ', pending: '─' };
     const lines = feedbacks.map(f =>
-      `${f.case_label || '-'} [${f.verdict}] ${f.pattern || ''} ${f.comment ? '｜' + f.comment : ''}`).join('\n');
-    alert(`【${currentPack?.storeName} のフィードバック(最新200件)】\n\n` + lines);
+      `${mark[f.verdict] || f.verdict} [${f.pattern || '-'}] ${f.comment || ''} ${f.staff_name ? '(' + f.staff_name + ')' : ''}`).join('\n');
+    alert(`【${storeName} のフィードバック(最新200件)】\n\n` + lines);
   } catch (e) { toast(e.message); }
 }
 
