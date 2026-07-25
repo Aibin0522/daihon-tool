@@ -273,26 +273,31 @@ function showTab(t) {
   }
 }
 
-/* ---------- API ---------- */
+/* ---------- API(非同期ジョブ+ポーリング) ---------- */
 async function api(task, input) {
-  const res = await fetch('/api/daihon-generate', {
+  // 1. ジョブ発行(サーバーは即202で返す。ここではLLMを待たない)
+  const res = await fetch('/api/jobs', {
     method: 'POST', headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ task, input }),
   });
-  const text = await res.text();
   let data;
-  try {
-    data = JSON.parse(text);
-  } catch {
-    // JSONでない(HTMLエラーページ等)場合
-    if (res.status === 502 || res.status === 504 || /timeout|time-out/i.test(text)) {
-      throw new Error('サーバー側で時間切れになりました。もう一度お試しいただくか、ヒアリングはチャットで作成してください。');
-    }
-    throw new Error(`サーバーエラー(${res.status})。少し待って再度お試しください。`);
+  try { data = await res.json(); }
+  catch { throw new Error(`サーバーエラー(${res.status})。少し待って再度お試しください。`); }
+  if (!res.ok || !data.job_id) throw new Error(data.error || 'ジョブの発行に失敗しました');
+
+  // 2. 3秒間隔でポーリング(最大5分)
+  const deadline = Date.now() + 5 * 60 * 1000;
+  while (Date.now() < deadline) {
+    await new Promise(r => setTimeout(r, 3000));
+    let job;
+    try {
+      const jr = await fetch('/api/jobs?id=' + encodeURIComponent(data.job_id));
+      job = await jr.json();
+    } catch { continue; } // 一時的な通信エラーは次のポーリングへ
+    if (job.status === 'done') return job.result;
+    if (job.status === 'failed') throw new Error(job.error || '生成に失敗しました。もう一度お試しください。');
   }
-  if (!res.ok) throw new Error(data.error || '生成に失敗しました');
-  if (data.parseError) throw new Error('AIの出力が乱れました。もう一度「台本を作る」を押してください(繰り返す場合はご連絡を)。');
-  return data;
+  throw new Error('時間内に完了しませんでした。少し待ってからもう一度お試しください。');
 }
 
 /* ---------- チャット製シートの取り込み ---------- */

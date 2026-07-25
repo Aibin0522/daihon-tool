@@ -1,0 +1,29 @@
+name = "daihon-tool-api"
+main = "src/index.ts"
+compatibility_date = "2026-07-01"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "daihon_tool"
+database_id = "REPLACE_AFTER_wrangler_d1_create"
+
+[[queues.producers]]
+binding = "SCRIPT_QUEUE"
+queue = "script-jobs"
+
+[[queues.consumers]]
+queue = "script-jobs"
+max_batch_size = 1
+max_retries = 3
+dead_letter_queue = "script-jobs-dlq"
+
+# 5分間隔: 停滞ジョブの再試行・失敗確定
+[triggers]
+crons = ["*/5 * * * *"]
+
+# secrets:
+#   wrangler secret put ANTHROPIC_API_KEY   # Vercelで使用中のものと同じでよい
+#   wrangler secret put API_AUTH_TOKEN      # Vercelプロキシとの共有トークン
+
+[vars]
+LLM_MODEL = "claude-sonnet-4-6"  # 現行daihon-generate.jsと同一
