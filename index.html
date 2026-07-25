@@ -176,7 +176,8 @@ tr.nega td{background:var(--nega)}
       <textarea id="sMaterial" rows="3" placeholder="・外観(夜) ・タンを網に乗せる手元 ・脂が跳ねる瞬間 …"></textarea>
       <div class="err" id="sErr"></div>
       <button class="cta" id="sBtn" onclick="genScript()">台本を作る(1本ずつ)</button>
-      <p class="hint">💡 構文パターンを選んで1本ずつ生成。複数案が欲しいときはパターンを変えて繰り返し押してください(履歴に残ります)。</p>
+      <button class="cta" id="mBtn" onclick="genMulti()" style="margin-top:8px;background:#1a5;">⚡ 全型を一気に出す(AIが5型を選定)</button>
+      <p class="hint">💡「1本ずつ」は選んだ構文パターンで1本。「全型を一気に」はAIがこの店に合う5型を選び、5本まとめて生成します(各案を採用/修正/ボツでレビューでき、学習に反映)。</p>
     </div>
     <div class="card" id="loadingS"><div class="spinner"></div>プレイブック準拠で構成中…(10〜20秒)</div>
     <div class="card" id="loadingP" style="display:none"><div class="spinner"></div>構成中…</div>
@@ -461,6 +462,33 @@ async function genScript() {
   finally { $('sBtn').disabled = false; $('loadingS').style.display = 'none'; }
 }
 
+/* ---------- 全型を一気に(AIが5型を選定・5本並列) ---------- */
+async function genMulti() {
+  const store = load(K.stores).find(s => s.id === $('sStore').value);
+  if (!store) return showErr('sErr', '先に①タブで店舗を作成・保存してください');
+  showErr('sErr', '');
+  $('sBtn').disabled = true; $('mBtn').disabled = true;
+  $('loadingP').style.display = 'block'; $('sResult').style.display = 'none'; $('pResult').style.display = 'none';
+  $('loadingP').innerHTML = '<div class="spinner"></div>AIが5型を選定 → 5本を一気に構成中…(30秒〜1分)';
+  const tpl = load(K.tpls).find(t => t.id === $('sTpl').value);
+  try {
+    const { pack, parseError } = await api('multi', {
+      hearing: store.hearing,
+      accountType: $('sType').value,
+      duration: $('sDuration').value,
+      material: $('sMaterial').value,
+      seasonal: $('sSeasonal').value,
+      extraRules: tpl ? `${tpl.name}: ${tpl.rules}` : '',
+    });
+    if (parseError || !pack || !(pack.cases || []).length) throw new Error('生成が乱れました。もう一度お試しください。');
+    currentPack = { pack, storeName: store.hearing.store.name, at: new Date().toISOString() };
+    currentRunId = null;
+    renderPack();
+    saveRun(store.hearing.store.name, pack);
+  } catch (e) { showErr('sErr', e.message); }
+  finally { $('sBtn').disabled = false; $('mBtn').disabled = false; $('loadingP').style.display = 'none'; }
+}
+
 /* ---------- 6案パック生成 ---------- */
 let currentPack = null, currentRunId = null;
 
@@ -732,6 +760,217 @@ renderStores(); renderTpls(); renderHist();
     $('hQuery').value = q;
   }
 })();
+
+/* ========== レビュー学習(D1)拡張 v1 ==========
+   採用/修正採用/ボツ + 理由タグ8種を script_reviews(D1) へ保存する(設計書§4)。
+   既存のSupabaseフィードバックは並走(二重保存)。
+   このブロックは同名関数を上書きする方式(後方の宣言が優先される)。 */
+
+const REASON_TAGS_D1 = [
+  ['hook_weak', '冒頭が弱い'],
+  ['fact_error', '事実が違う'],
+  ['generic', '一般論すぎる'],
+  ['tone_mismatch', 'らしくない'],
+  ['structure_bad', '順番が悪い'],
+  ['cta_weak', 'CTAが弱い'],
+  ['compliance_risk', '表現・権利リスク'],
+  ['good_pattern', '勝ちパターン'],
+];
+
+document.head.insertAdjacentHTML('beforeend', `<style>
+.tagchecks{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}
+.tagchk{font-size:12px;border:1.5px solid var(--line);border-radius:999px;padding:4px 10px;cursor:pointer;display:inline-flex;gap:4px;align-items:center;background:#fff}
+.tagchk:has(input:checked){background:var(--tint);border-color:var(--primary);color:var(--primary-dark);font-weight:700}
+.verdict-btns button.revised{background:#fff8e1;border-color:#f9ab00;color:#b06000;font-weight:700}
+</style>`);
+
+function tagChecksHtml(prefix) {
+  return '<div class="tagchecks">' + REASON_TAGS_D1.map(([k, v]) =>
+    `<label class="tagchk"><input type="checkbox" value="${k}" data-tags="${prefix}">${v}</label>`).join('') + '</div>';
+}
+function readTags(prefix) {
+  return [...document.querySelectorAll(`input[data-tags="${prefix}"]:checked`)].map(x => x.value);
+}
+async function saveReviewD1(scriptDbId, decision, tags, note, afterText) {
+  if (!scriptDbId) { console.warn('script_db_id なし(旧データ)のためD1保存をスキップ'); return; }
+  const reviewer = localStorage.getItem('aibin_staff_name') || '未記入';
+  const res = await fetch('/api/review', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ script_db_id: scriptDbId, decision, reason_tags: tags, reason_note: note || null, after_text: afterText || null, reviewer }),
+  });
+  if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || 'レビュー保存APIエラー'); }
+}
+
+/* --- パック比較カード: 3ボタン + 理由タグ付きへ差し替え --- */
+function caseCardHtml(c, idx) {
+  const cuts = (c.cuts || []).map(x =>
+    `<tr class="${x.is_nega ? 'nega' : ''}"><td class="time-col">${esc(x.time)}</td><td>${esc(x.footage)}</td><td contenteditable="true" data-case="${idx}">${esc(x.telop)}</td></tr>`).join('');
+  const copies = (c.catchcopies_8wari || []).map(x => `「${esc(x.text)}」(${x.chars}字)`).join(' / ');
+  return `<div class="case-card" id="case-${idx}">
+    <div class="case-head">
+      <span><span class="case-label case-type-${esc(c.type)}">${esc(c.label)}</span> <span class="pill">${esc(c.pattern)}</span></span>
+      <div class="verdict-btns">
+        <button id="adopt-${idx}" onclick="setVerdict(${idx},'adopted')">採用</button>
+        <button id="revise-${idx}" onclick="setVerdict(${idx},'revised')">修正採用</button>
+        <button id="reject-${idx}" onclick="setVerdict(${idx},'rejected')">ボツ</button>
+      </div>
+    </div>
+    <div class="hint" style="margin-top:6px"><b>フック:</b> ${esc(c.hook)}</div>
+    <div class="hint"><b>コピー:</b> ${copies}</div>
+    <div style="overflow-x:auto;margin-top:8px">
+      <table><thead><tr><th>秒数</th><th>映像</th><th>テロップ(編集可)</th></tr></thead><tbody>${cuts}</tbody></table>
+    </div>
+    <details style="margin-top:8px"><summary class="hint" style="cursor:pointer">キャプション骨子・武器の説明を見る</summary>
+      <div class="pre" style="margin-top:6px">${esc(c.caption_skeleton || '')}</div>
+      <div class="hint" style="margin-top:6px"><b>武器・構文:</b> ${esc(c.weapon_explanation || '')}</div>
+    </details>
+    <div style="margin-top:8px">
+      ${tagChecksHtml('case-' + idx)}
+      <input id="fbcomment-${idx}" placeholder="コメント(修正理由の補足など・任意)" style="font-size:13px">
+      <div class="actions" style="margin-top:6px">
+        <button class="ghost" onclick="copyCaseTelops(${idx})">📋 テロップコピー</button>
+        <button class="ghost primary" onclick="saveCaseFeedback(${idx})">💾 レビューを保存</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+function setVerdict(idx, verdict) {
+  const c = currentPack.pack.cases[idx];
+  c._verdict = verdict;
+  $(`adopt-${idx}`).classList.toggle('adopted', verdict === 'adopted');
+  const rev = $(`revise-${idx}`); if (rev) rev.classList.toggle('revised', verdict === 'revised');
+  $(`reject-${idx}`).classList.toggle('rejected', verdict === 'rejected');
+}
+
+async function saveCaseFeedback(idx) {
+  const c = currentPack.pack.cases[idx];
+  const verdict = c._verdict;
+  if (!verdict) return toast('採用 / 修正採用 / ボツ を選んでください');
+  const tags = readTags('case-' + idx);
+  if ((verdict === 'revised' || verdict === 'rejected') && tags.length === 0) return toast('理由タグを1つ以上選んでください(学習データになります)');
+  const comment = $(`fbcomment-${idx}`).value.trim();
+  const telopsNow = [...document.querySelectorAll(`#case-${idx} td[contenteditable]`)].map(td => td.textContent.trim());
+  const telopsOrig = (c.cuts || []).map(x => x.telop);
+  const afterText = telopsNow.join('\n') !== telopsOrig.join('\n') ? telopsNow.join('\n') : null;
+  try {
+    await saveReviewD1(c.script_db_id, verdict, tags, comment, afterText);
+    fbApi('save_feedback', {
+      run_id: currentRunId, store_name: currentPack.storeName,
+      case_label: c.label, pattern: c.pattern, verdict, comment: comment || tags.join(',') || null,
+      staff_name: localStorage.getItem('aibin_staff_name') || null,
+    }).catch(e => console.warn(e.message));
+    toast(`${c.label} のレビューを保存しました`);
+  } catch (e) { toast('保存失敗: ' + e.message); }
+}
+
+/* --- 単発台本レビュー --- */
+function setSingleVerdict(v) {
+  singleVerdict = v;
+  $('sAdopt').classList.toggle('adopted', v === 'adopted');
+  const rev = $('sRevise'); if (rev) rev.classList.toggle('revised', v === 'revised');
+  $('sReject').classList.toggle('rejected', v === 'rejected');
+}
+function resetSingleFeedback() {
+  singleVerdict = 'pending';
+  for (const id of ['sAdopt', 'sRevise', 'sReject']) { const b = $(id); if (b) b.classList.remove('adopted', 'revised', 'rejected'); }
+  document.querySelectorAll('input[data-tags="single"]').forEach(x => { x.checked = false; });
+  if ($('sFbComment')) $('sFbComment').value = '';
+  if ($('sFbStaff')) $('sFbStaff').value = localStorage.getItem('aibin_staff_name') || '';
+}
+async function saveSingleFeedback() {
+  if (!currentScript) return toast('先に台本を生成してください');
+  if (singleVerdict === 'pending') return toast('採用 / 修正して採用 / ボツ を選んでください');
+  const tags = readTags('single');
+  if ((singleVerdict === 'revised' || singleVerdict === 'rejected') && tags.length === 0) return toast('理由タグを1つ以上選んでください');
+  const staff = $('sFbStaff').value.trim();
+  if (staff) localStorage.setItem('aibin_staff_name', staff);
+  const comment = $('sFbComment').value.trim();
+  const telopsNow = [...$('rCuts').querySelectorAll('td[contenteditable]')].map(td => td.textContent.trim());
+  const telopsOrig = (currentScript.script.cuts || []).map(x => x.telop);
+  const afterText = telopsNow.join('\n') !== telopsOrig.join('\n') ? telopsNow.join('\n') : null;
+  try {
+    await saveReviewD1(currentScript.script.script_db_id, singleVerdict, tags, comment, afterText);
+    fbApi('save_feedback', {
+      run_id: currentRunId, store_name: currentScript.storeName,
+      case_label: `単発/${currentScript.type}`, pattern: currentScript.script.pattern || '',
+      verdict: singleVerdict, comment: comment || tags.join(',') || null,
+      staff_name: staff || localStorage.getItem('aibin_staff_name') || null,
+    }).catch(e => console.warn(e.message));
+    toast('レビューを保存しました');
+  } catch (e) { toast('保存失敗: ' + e.message); }
+}
+
+/* 単発レビューUIへ「修正して採用」ボタンと理由タグを追加 */
+(function () {
+  const btns = document.getElementById('sAdopt')?.parentElement;
+  if (btns && !document.getElementById('sRevise')) {
+    const b = document.createElement('button');
+    b.id = 'sRevise'; b.textContent = '✏️ 修正して採用'; b.onclick = () => setSingleVerdict('revised');
+    btns.insertBefore(b, document.getElementById('sReject'));
+    btns.insertAdjacentHTML('afterend', tagChecksHtml('single'));
+  }
+})();
+
+/* ========== D1共有ストレージ同期 v1 ==========
+   店舗一覧・テンプレート・履歴を D1(サーバー)に集約し、どのブラウザからでも
+   同じ一覧が見えるようにする。localStorage は「起動時にD1から流し込むキャッシュ」。 */
+const WAPI = '/api';
+async function wGet(p) { const r = await fetch(WAPI + p); if (!r.ok) throw new Error('GET ' + p + ' ' + r.status); return r.json(); }
+async function wSend(method, p, body) {
+  const r = await fetch(WAPI + p, { method, headers: body ? { 'content-type': 'application/json' } : {}, body: body ? JSON.stringify(body) : undefined });
+  if (!r.ok) throw new Error(method + ' ' + p + ' ' + r.status);
+  return r.json().catch(() => ({}));
+}
+function storePayload(s) {
+  return { id: s.id, name: s.hearing?.store?.name || '(無名)', industry: s.hearing?.store?.genre || 'food', official_url: s.hearing?.store?.official_url || null, hearing: s.hearing };
+}
+
+/* 保存系を D1 にも反映(ローカル保存＝即時反映のキャッシュはそのまま) */
+const _saveStore = saveStore;
+saveStore = function () {
+  const nameFilled = !!$('f_name').value.trim();
+  _saveStore();
+  if (!nameFilled) return;
+  const target = editingStoreId ? load(K.stores).find(x => x.id === editingStoreId) : load(K.stores)[0];
+  if (target) wSend('POST', '/stores', storePayload(target)).catch(e => console.warn('D1同期(店舗):', e.message));
+};
+const _delStore = delStore;
+delStore = function (id) {
+  _delStore(id);
+  if (!load(K.stores).find(x => x.id === id)) wSend('DELETE', '/stores?id=' + encodeURIComponent(id)).catch(e => console.warn('D1同期(店舗削除):', e.message));
+};
+const _addTpl = addTpl;
+addTpl = function () {
+  const before = load(K.tpls).length;
+  _addTpl();
+  const after = load(K.tpls);
+  if (after.length > before) wSend('POST', '/templates', { id: after[0].id, name: after[0].name, rules: after[0].rules }).catch(e => console.warn('D1同期(テンプレ):', e.message));
+};
+const _delTpl = delTpl;
+delTpl = function (id) {
+  _delTpl(id);
+  wSend('DELETE', '/templates?id=' + encodeURIComponent(id)).catch(e => console.warn('D1同期(テンプレ削除):', e.message));
+};
+
+/* 起動時: D1から一覧を流し込む。初回のみローカルの既存データをD1へ移行 */
+async function hydrateFromD1() {
+  try {
+    let [{ stores }, { templates }, { history }] = await Promise.all([wGet('/stores'), wGet('/templates'), wGet('/history?limit=30')]);
+    const localStores = load(K.stores);
+    if ((!stores || stores.length === 0) && localStores.length > 0 && !localStorage.getItem('aibin_migrated_v1')) {
+      for (const s of localStores) await wSend('POST', '/stores', storePayload(s)).catch(() => {});
+      for (const t of load(K.tpls)) await wSend('POST', '/templates', { id: t.id, name: t.name, rules: t.rules }).catch(() => {});
+      localStorage.setItem('aibin_migrated_v1', '1');
+      [{ stores }, { templates }, { history }] = await Promise.all([wGet('/stores'), wGet('/templates'), wGet('/history?limit=30')]);
+    }
+    if (stores) save(K.stores, stores.map(r => ({ id: r.id, hearing: r.hearing_json ? JSON.parse(r.hearing_json) : { store: { name: r.name } }, updatedAt: r.updated_at })));
+    if (templates) save(K.tpls, templates.map(t => ({ id: t.id, name: t.name, rules: t.rules })));
+    if (history) save(K.hist, history);
+    renderStores(); renderTpls(); renderHist();
+  } catch (e) { console.warn('D1読込に失敗(ローカル表示を継続):', e.message); }
+}
+hydrateFromD1();
 </script>
 </body>
 </html>

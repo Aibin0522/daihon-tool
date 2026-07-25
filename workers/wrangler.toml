@@ -5,7 +5,7 @@ compatibility_date = "2026-07-01"
 [[d1_databases]]
 binding = "DB"
 database_name = "daihon_tool"
-database_id = "REPLACE_AFTER_wrangler_d1_create"
+database_id = "fdb33909-29dc-460a-a223-02b890c3f4f4"
 
 [[queues.producers]]
 binding = "SCRIPT_QUEUE"

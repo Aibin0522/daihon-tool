@@ -10,7 +10,7 @@ export interface JobMessage {
   job_id: string;
 }
 
-export type TaskType = "hearing" | "script" | "pack";
+export type TaskType = "hearing" | "script" | "pack" | "multi";
 
 /** 現行UIの api(task, input) と同じ入力(互換維持) */
 export interface JobRequest {

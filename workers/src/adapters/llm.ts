@@ -10,7 +10,8 @@ export async function callClaude(
   system: string,
   user: string,
   useSearch: boolean,
-  maxTokens: number
+  maxTokens: number,
+  temperature?: number
 ): Promise<string> {
   const body: Record<string, unknown> = {
     model,
@@ -18,6 +19,7 @@ export async function callClaude(
     system,
     messages: [{ role: "user", content: user }],
   };
+  if (typeof temperature === "number") body.temperature = temperature;
   if (useSearch) body.tools = [{ type: "web_search_20250305", name: "web_search" }];
 
   const res = await fetch("https://api.anthropic.com/v1/messages", {
@@ -40,16 +42,68 @@ export async function callClaude(
     .join("");
 }
 
-/** 現行 parseJson と同一挙動 */
+/**
+ * LLM出力からJSONを取り出す。崩れたJSONを段階的に修復して復元を試みる。
+ * よくある崩れ: 末尾カンマ / 配列・オブジェクト要素間のカンマ抜け。
+ */
 export function parseJson<T>(raw: string): T {
   let s = raw.replace(/```json/gi, "").replace(/```/g, "").trim();
   const start = s.indexOf("{");
   const end = s.lastIndexOf("}");
   if (start === -1 || end === -1) throw new Error("no json braces");
   s = s.slice(start, end + 1);
-  try {
-    return JSON.parse(s) as T;
-  } catch {
-    return JSON.parse(s.replace(/,(\s*[}\]])/g, "$1")) as T;
+
+  // 要素間のカンマ抜けを補う（改行をまたぐ場合のみ。既存カンマは "," が \s に含まれず二重化しない）
+  const insertCommas = (x: string): string =>
+    x
+      .replace(/"(\s*\n\s*)"/g, '",$1"') // "..." 改行 "..."（文字列配列・キー/値の区切り抜け）
+      .replace(/(\}|\]|true|false|null|-?\d+(?:\.\d+)?)(\s*\n\s*)(")/g, "$1,$2$3") // 値 改行 "..."
+      .replace(/(\})(\s*\n\s*)(\{)/g, "$1,$2$3") // } 改行 {
+      .replace(/(\])(\s*\n\s*)(\[)/g, "$1,$2$3"); // ] 改行 [
+
+  const repairs: ((x: string) => string)[] = [
+    x => x,
+    x => x.replace(/,(\s*[}\]])/g, "$1"), // 末尾カンマ除去
+    x => insertCommas(x), // カンマ抜け補完
+    x => insertCommas(x).replace(/,(\s*[}\]])/g, "$1"), // 併用
+  ];
+
+  let lastErr: unknown;
+  for (const fix of repairs) {
+    try {
+      return JSON.parse(fix(s)) as T;
+    } catch (e) {
+      lastErr = e;
+    }
   }
+  throw lastErr instanceof Error ? lastErr : new Error("JSON parse failed");
+}
+
+/**
+ * JSON生成専用ヘルパー。生成→parseを最大3回試行し、失敗時は温度を下げ、
+ * 「厳密に有効なJSONのみ」を強めて再生成する。これでLLMのJSON崩れをジョブ失敗にしない。
+ */
+export async function generateJson<T>(
+  apiKey: string,
+  model: string,
+  system: string,
+  user: string,
+  useSearch: boolean,
+  maxTokens: number
+): Promise<T> {
+  const attempts = [
+    { temperature: 0.6, extra: "" },
+    { temperature: 0.2, extra: "\n\n【重要・再送】前回の出力はJSONとして不正でした（カンマ抜け等）。説明文やコードブロック記号を付けず、{で始まり}で終わる、厳密に有効なJSONだけを返してください。" },
+    { temperature: 0.0, extra: "\n\n【最終・厳守】有効なJSONのみを返すこと。全ての配列・オブジェクト要素はカンマで正しく区切ること。末尾カンマ禁止。" },
+  ];
+  let lastErr: unknown;
+  for (const a of attempts) {
+    try {
+      const raw = await callClaude(apiKey, model, system, user + a.extra, useSearch, maxTokens, a.temperature);
+      return parseJson<T>(raw);
+    } catch (e) {
+      lastErr = e;
+    }
+  }
+  throw lastErr instanceof Error ? lastErr : new Error("JSON generation failed");
 }
