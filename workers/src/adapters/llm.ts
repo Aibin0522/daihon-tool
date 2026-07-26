@@ -22,24 +22,36 @@ export async function callClaude(
   if (typeof temperature === "number") body.temperature = temperature;
   if (useSearch) body.tools = [{ type: "web_search_20250305", name: "web_search" }];
 
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "x-api-key": apiKey,
-      "anthropic-version": "2023-06-01",
-    },
-    body: JSON.stringify(body),
-  });
-  const data = (await res.json()) as {
-    content?: { type: string; text?: string }[];
-    error?: { message?: string };
-  };
-  if (!res.ok) throw new Error(data.error?.message || "API error");
-  return (data.content || [])
-    .filter(b => b.type === "text")
-    .map(b => b.text ?? "")
-    .join("");
+  // 過負荷(429/5xx/529)は指数バックオフで自動リトライ。同時生成時のレート制限対策。
+  const maxTries = 5;
+  let lastErr = "API error";
+  for (let attempt = 0; attempt < maxTries; attempt++) {
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-api-key": apiKey,
+        "anthropic-version": "2023-06-01",
+      },
+      body: JSON.stringify(body),
+    });
+    if (res.status === 429 || res.status === 500 || res.status === 502 || res.status === 503 || res.status === 529) {
+      lastErr = `HTTP ${res.status} (overloaded)`;
+      const waitMs = Math.min(1000 * 2 ** attempt, 8000) + Math.floor(Math.random() * 500);
+      await new Promise(r => setTimeout(r, waitMs));
+      continue;
+    }
+    const data = (await res.json()) as {
+      content?: { type: string; text?: string }[];
+      error?: { message?: string };
+    };
+    if (!res.ok) throw new Error(data.error?.message || "API error");
+    return (data.content || [])
+      .filter(b => b.type === "text")
+      .map(b => b.text ?? "")
+      .join("");
+  }
+  throw new Error(lastErr);
 }
 
 /**

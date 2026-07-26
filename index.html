@@ -176,8 +176,14 @@ tr.nega td{background:var(--nega)}
       <textarea id="sMaterial" rows="3" placeholder="・外観(夜) ・タンを網に乗せる手元 ・脂が跳ねる瞬間 …"></textarea>
       <div class="err" id="sErr"></div>
       <button class="cta" id="sBtn" onclick="genScript()">台本を作る(1本ずつ)</button>
-      <button class="cta" id="mBtn" onclick="genMulti()" style="margin-top:8px;background:#1a5;">⚡ 全型を一気に出す(AIが5型を選定)</button>
-      <p class="hint">💡「1本ずつ」は選んだ構文パターンで1本。「全型を一気に」はAIがこの店に合う5型を選び、5本まとめて生成します(各案を採用/修正/ボツでレビューでき、学習に反映)。</p>
+      <label class="lbl" style="margin-top:14px">⚡ 一気に出す構文パターン(3つ選ぶ)</label>
+      <div class="row3">
+        <select id="mPat1"></select>
+        <select id="mPat2"></select>
+        <select id="mPat3"></select>
+      </div>
+      <button class="cta" id="mBtn" onclick="genMulti()" style="margin-top:8px;background:#1a5;">⚡ 選んだ3型を一気に出す</button>
+      <p class="hint">💡「1本ずつ」は上の「構文パターン」で1本。「⚡選んだ3型」は、すぐ上で選んだ3つの型を一気に3本生成します(各案を採用/修正/ボツでレビューでき学習に反映)。同じ型が重複したら自動でまとめます。</p>
     </div>
     <div class="card" id="loadingS"><div class="spinner"></div>プレイブック準拠で構成中…(10〜20秒)</div>
     <div class="card" id="loadingP" style="display:none"><div class="spinner"></div>構成中…</div>
@@ -286,8 +292,8 @@ async function api(task, input) {
   catch { throw new Error(`サーバーエラー(${res.status})。少し待って再度お試しください。`); }
   if (!res.ok || !data.job_id) throw new Error(data.error || 'ジョブの発行に失敗しました');
 
-  // 2. 3秒間隔でポーリング(最大5分)
-  const deadline = Date.now() + 5 * 60 * 1000;
+  // 2. 3秒間隔でポーリング(最大9分。全型一気=multiは5本生成で時間がかかるため余裕を持つ)
+  const deadline = Date.now() + 9 * 60 * 1000;
   while (Date.now() < deadline) {
     await new Promise(r => setTimeout(r, 3000));
     let job;
@@ -469,12 +475,19 @@ async function genMulti() {
   showErr('sErr', '');
   $('sBtn').disabled = true; $('mBtn').disabled = true;
   $('loadingP').style.display = 'block'; $('sResult').style.display = 'none'; $('pResult').style.display = 'none';
-  $('loadingP').innerHTML = '<div class="spinner"></div>AIが5型を選定 → 5本を一気に構成中…(30秒〜1分)';
+  // 選ばれた型(★実証済み等の装飾は除去)。重複はまとめる。
+  const chosenPatterns = [...new Set(['mPat1', 'mPat2', 'mPat3'].map(id => $(id).value.replace(/★.*$/, '').trim()).filter(Boolean))];
+  if (chosenPatterns.length === 0) {
+    $('sBtn').disabled = false; $('mBtn').disabled = false; $('loadingP').style.display = 'none';
+    return showErr('sErr', '構文パターンを1つ以上選んでください');
+  }
+  $('loadingP').innerHTML = `<div class="spinner"></div>選んだ${chosenPatterns.length}型を一気に構成中…(1〜2分)`;
   const tpl = load(K.tpls).find(t => t.id === $('sTpl').value);
   try {
     const { pack, parseError } = await api('multi', {
       hearing: store.hearing,
       accountType: $('sType').value,
+      patterns: chosenPatterns,
       duration: $('sDuration').value,
       material: $('sMaterial').value,
       seasonal: $('sSeasonal').value,
@@ -737,6 +750,12 @@ let toastTimer;
 function toast(m) { const t = $('toast'); t.textContent = m; t.classList.add('show'); clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('show'), 2000); }
 
 $('sPattern').innerHTML = PATTERNS.map(p => `<option>${p}</option>`).join('');
+// ⚡一気用の3つの型ドロップダウン(おまかせを除く)。既定は異なる3型。
+const MPATS = PATTERNS.slice(1);
+['mPat1', 'mPat2', 'mPat3'].forEach((id, i) => {
+  $(id).innerHTML = MPATS.map(p => `<option>${p}</option>`).join('');
+  $(id).value = MPATS[i] || MPATS[0];
+});
 renderStores(); renderTpls(); renderHist();
 
 /* ---------- 管制塔などからの紐付け(URLパラメータ) ----------

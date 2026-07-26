@@ -23,6 +23,7 @@ export interface JobRequest {
     accountType?: string; // script: A / B
     packType?: string; // pack: A / B
     pattern?: string;
+    patterns?: string[]; // multi: ユーザーが選んだ構文パターン(未指定ならAIが選定)
     duration?: string;
     material?: string;
     seasonal?: string;

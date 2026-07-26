@@ -388,38 +388,50 @@ async function processMulti(
   fuel: string
 ): Promise<void> {
   const at = input.accountType === "B" ? "B(店舗公式用)" : "A(インフルエンサー用/ume)";
-
-  // 1) セレクタ: 相性の良い5型を選ぶ(軽量)
-  const selUser = `${hearingBlock(input)}\nアカウントタイプ: ${at}\n\nこの店に最も合う構文パターンを相性順に5つ選んでJSONで返す。`;
-  const sel = await generateJson<SelectResult>(key, model, MULTI_SELECT_SYSTEM, selUser, false, 800);
-
   const canon = PATTERN_CANON as readonly string[];
-  let patterns = (sel.patterns ?? [])
-    .map(p => (p.name ?? "").trim())
-    .filter(name => canon.includes(name));
-  // 重複除去
-  patterns = [...new Set(patterns)];
-  // 足りなければ正式名リストから補完(既出以外)
-  for (const p of canon) {
-    if (patterns.length >= 5) break;
-    if (!patterns.includes(p)) patterns.push(p);
+
+  // 使う構文パターンを決める。フロントで選ばれた型(input.patterns)を最優先。
+  // 未指定のときだけAIが相性で選定(後方互換)。
+  let patterns: string[];
+  let strategy = "";
+  const chosen = (input.patterns ?? []).map(p => (p || "").trim()).filter(Boolean);
+  if (chosen.length > 0) {
+    patterns = [...new Set(chosen)].slice(0, 5);
+  } else {
+    const selUser = `${hearingBlock(input)}\nアカウントタイプ: ${at}\n\nこの店に最も合う構文パターンを相性順に3つ選んでJSONで返す。`;
+    const sel = await generateJson<SelectResult>(key, model, MULTI_SELECT_SYSTEM, selUser, false, 800);
+    strategy = sel.strategy_summary ?? "";
+    let pats = (sel.patterns ?? []).map(p => (p.name ?? "").trim()).filter(name => canon.includes(name));
+    pats = [...new Set(pats)];
+    for (const p of canon) {
+      if (pats.length >= 3) break;
+      if (!pats.includes(p)) pats.push(p);
+    }
+    patterns = pats.slice(0, 3);
   }
-  patterns = patterns.slice(0, 5);
 
-  // 2) 各型を並列生成(単発台本と同じ品質。失敗した型はスキップ)
-  const results = await Promise.all(
-    patterns.map(async (pat, i) => {
-      const user = `${hearingBlock(input)}\nアカウントタイプ: ${at}\n構文パターン: ${pat}${fuel}\n\n重要: 説明文やコードブロック記号を付けず、{で始まり}で終わるJSONだけを出力。`;
-      try {
-        const script = await generateJson<Record<string, unknown>>(key, model, SINGLE_SYSTEM, user, false, 2500);
-        return { i, pat, script };
-      } catch {
-        return null;
-      }
-    })
-  );
+  // 2) 各型を生成(単発台本と同じ品質。失敗した型はスキップ)。
+  //    一斉に投げるとAPI過負荷で全滅するため、2本ずつの小分けで実行する。
+  const genOne = async (pat: string): Promise<{ pat: string; script: Record<string, unknown> } | null> => {
+    const user = `${hearingBlock(input)}\nアカウントタイプ: ${at}\n構文パターン: ${pat}${fuel}\n\n重要: 説明文やコードブロック記号を付けず、{で始まり}で終わるJSONだけを出力。`;
+    try {
+      const script = await generateJson<Record<string, unknown>>(key, model, SINGLE_SYSTEM, user, false, 2500);
+      return { pat, script };
+    } catch {
+      return null;
+    }
+  };
 
-  const ok = results.filter((r): r is { i: number; pat: string; script: Record<string, unknown> } => r !== null);
+  // クレジット十分なら5本並列が最速。過負荷時は callClaude 側のバックオフ再試行が吸収する。
+  const CONCURRENCY = 5;
+  const results: ({ pat: string; script: Record<string, unknown> } | null)[] = [];
+  for (let i = 0; i < patterns.length; i += CONCURRENCY) {
+    const chunk = patterns.slice(i, i + CONCURRENCY);
+    const chunkResults = await Promise.all(chunk.map(genOne));
+    results.push(...chunkResults);
+  }
+
+  const ok = results.filter((r): r is { pat: string; script: Record<string, unknown> } => r !== null);
   if (ok.length === 0) throw new Error("multiの生成がすべて失敗しました");
 
   // 3) scriptsへ保存(pack互換のcase形状。既存レビューUIがそのまま使える)
@@ -442,7 +454,7 @@ async function processMulti(
   }
   await env.DB.prepare(
     "UPDATE script_jobs SET status = 'done', result_json = ?, finished_at = datetime('now') WHERE id = ?"
-  ).bind(JSON.stringify({ strategy_summary: sel.strategy_summary ?? "" }), jobId).run();
+  ).bind(JSON.stringify({ strategy_summary: strategy }), jobId).run();
 }
 
 // ---------- Cron ----------
