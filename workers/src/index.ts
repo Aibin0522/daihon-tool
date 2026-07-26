@@ -422,8 +422,9 @@ async function processMulti(
     }
   };
 
-  // クレジット十分なら5本並列が最速。過負荷時は callClaude 側のバックオフ再試行が吸収する。
-  const CONCURRENCY = 5;
+  // APIティアが低い間は同時実行でレート制限に当たり全滅するため、1本ずつ順番に生成する。
+  // (ティアが上がれば数値を上げて高速化可能)
+  const CONCURRENCY = 1;
   const results: ({ pat: string; script: Record<string, unknown> } | null)[] = [];
   for (let i = 0; i < patterns.length; i += CONCURRENCY) {
     const chunk = patterns.slice(i, i + CONCURRENCY);
