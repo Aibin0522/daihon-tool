@@ -16,7 +16,9 @@ export async function callClaude(
   const body: Record<string, unknown> = {
     model,
     max_tokens: maxTokens,
-    system,
+    // プロンプトキャッシュ: 大きく静的なルール文(システムプロンプト)をキャッシュ対象にする。
+    // 数分以内の連続生成で入力コストが約90%オフ。出力内容・品質は不変。
+    system: [{ type: "text", text: system, cache_control: { type: "ephemeral" } }],
     messages: [{ role: "user", content: user }],
   };
   if (typeof temperature === "number") body.temperature = temperature;
