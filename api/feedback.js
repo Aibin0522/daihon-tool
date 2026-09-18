@@ -1,3 +1,4 @@
+import { requireOperator } from '../lib/operator-auth.mjs';
 // api/feedback.js  — フィードバックのSupabase保存・取得・エクスポート
 // 環境変数: SUPABASE_URL, SUPABASE_ANON_KEY
 
@@ -20,6 +21,7 @@ function sb(path, method, body) {
 }
 
 export default async function handler(req, res) {
+  if (!await requireOperator(req, res)) return;
   try {
     const method = req.method
     const body = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : (req.body || {})

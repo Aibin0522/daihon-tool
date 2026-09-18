@@ -1,8 +1,10 @@
+import { requireOperator } from '../lib/operator-auth.mjs';
 // api/templates.js — Worker /api/templates へのプロキシ(テンプレートのD1共有)
 // GET: 一覧 / POST: 作成・更新 / DELETE ?id=xxx: 削除
 export const config = { maxDuration: 15 }
 
 export default async function handler(req, res) {
+  if (!await requireOperator(req, res)) return;
   const base = process.env.WORKER_URL
   const token = process.env.WORKER_TOKEN
   if (!base || !token) return res.status(500).json({ error: 'WORKER_URL / WORKER_TOKEN が未設定です' })

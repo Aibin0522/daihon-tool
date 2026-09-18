@@ -1,7 +1,9 @@
+import { requireOperator } from '../lib/operator-auth.mjs';
 // api/history.js — Worker /api/history へのプロキシ(生成履歴のD1共有・読み取り専用)
 export const config = { maxDuration: 15 }
 
 export default async function handler(req, res) {
+  if (!await requireOperator(req, res)) return;
   if (req.method !== 'GET') return res.status(405).json({ error: 'Method Not Allowed' })
   const base = process.env.WORKER_URL
   const token = process.env.WORKER_TOKEN

@@ -1,3 +1,4 @@
+import { requireOperator } from '../lib/operator-auth.mjs';
 // api/review.js — D1レビュー保存(script_reviews)へのプロキシ
 // POST { script_db_id, decision, before_text?, after_text?, reason_tags, reason_note?, reviewer }
 // 既存のSupabaseフィードバック(api/feedback.js)と併用可。将来はこちらへ一本化。
@@ -5,6 +6,7 @@
 export const config = { maxDuration: 15 }
 
 export default async function handler(req, res) {
+  if (!await requireOperator(req, res)) return;
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method Not Allowed' })
   const base = process.env.WORKER_URL
   const token = process.env.WORKER_TOKEN

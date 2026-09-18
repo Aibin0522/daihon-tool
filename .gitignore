@@ -1,3 +1,11 @@
 workers/node_modules/
 workers/.wrangler/
 .dev.vars
+
+node_modules/
+public/
+.vercel/
+.wrangler/
+.env*
+.dev.vars*
+.vercel

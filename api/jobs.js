@@ -1,3 +1,4 @@
+import { requireOperator } from '../lib/operator-auth.mjs';
 // api/jobs.js — Cloudflare Workerへのプロキシ
 // トークンをブラウザに出さないため、フロントは同一オリジンのこのAPIだけを叩く。
 // Vercel環境変数: WORKER_URL(例 https://daihon-tool-api.xxx.workers.dev), WORKER_TOKEN
@@ -5,6 +6,7 @@
 export const config = { maxDuration: 15 }
 
 export default async function handler(req, res) {
+  if (!await requireOperator(req, res)) return;
   const base = process.env.WORKER_URL
   const token = process.env.WORKER_TOKEN
   if (!base || !token) return res.status(500).json({ error: 'WORKER_URL / WORKER_TOKEN が未設定です' })

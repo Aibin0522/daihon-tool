@@ -1,3 +1,4 @@
+import { requireOperator } from '../lib/operator-auth.mjs';
 // api/daihon-generate.js  (v3)
 // task=hearing: 店URL/店名 → Web検索 → ヒアリング下書きJSON
 // task=script : ヒアリングデータ → 台本JSON(単発)
@@ -185,6 +186,7 @@ ${input.extraRules?.trim() ? `\n【追加テンプレートルール(必ず従�
 }
 
 export default async function handler(req, res) {
+  if (!await requireOperator(req, res)) return;
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method Not Allowed' })
   if (!process.env.ANTHROPIC_API_KEY) return res.status(500).json({ error: 'ANTHROPIC_API_KEY が未設定です' })
   try {

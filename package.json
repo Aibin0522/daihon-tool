@@ -1,0 +1,12 @@
+{
+  "name": "aibin-daihon-tool",
+  "private": true,
+  "type": "module",
+  "engines": { "node": "24.x" },
+  "scripts": {
+    "build": "node scripts/build-public.mjs",
+    "typecheck": "tsc -p workers/tsconfig.json"
+  },
+  "dependencies": { "@vercel/functions": "3.9.8" },
+  "devDependencies": { "typescript": "^5.5.0", "@cloudflare/workers-types": "5.20260918.1", "esbuild": "^0.25.0" }
+}

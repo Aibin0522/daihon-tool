@@ -1,9 +1,11 @@
+import { requireOperator } from '../../lib/operator-auth.mjs';
 // api/w/[...path].js — Worker への汎用プロキシ
 // フロントは /api/w/<worker上のパス> を叩く(トークンはサーバー側で付与)。
 // 例: GET /api/w/stores -> Worker GET /api/stores
 export const config = { maxDuration: 15 }
 
 export default async function handler(req, res) {
+  if (!await requireOperator(req, res)) return;
   const base = process.env.WORKER_URL
   const token = process.env.WORKER_TOKEN
   if (!base || !token) return res.status(500).json({ error: 'WORKER_URL / WORKER_TOKEN が未設定です' })
