@@ -68,6 +68,7 @@ tr.nega td{background:var(--nega)}
 .toast.show{opacity:1}
 @media(prefers-reduced-motion:reduce){.spinner{animation:none}}
 </style>
+<link rel="stylesheet" href="/growth.css">
 </head>
 <body>
 <div class="wrap">
@@ -274,7 +275,7 @@ let currentHearing = null, editingStoreId = null, currentScript = null;
 
 /* ---------- タブ ---------- */
 function showTab(t) {
-  for (const x of ['hearing','script','tpl']) {
+  for (const x of ['hearing','script','tpl','growth']) {
     $('tab-' + x).style.display = x === t ? 'block' : 'none';
     $('tabBtn-' + x).classList.toggle('on', x === t);
   }
@@ -991,5 +992,6 @@ async function hydrateFromD1() {
 }
 hydrateFromD1();
 </script>
+<script src="/growth.js"></script>
 </body>
 </html>

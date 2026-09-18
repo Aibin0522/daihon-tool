@@ -2,7 +2,7 @@
 // 内容は統合プレイブックv1.5準拠。変更時は PROMPT_VERSION を上げること(上書き禁止)。
 
 // v1_6: 全型一気(multi)＋レビュー燃料注入を追加。
-export const PROMPT_VERSION = "playbook_v1_6";
+export const PROMPT_VERSION = "playbook_v1_6_growth_20260919";
 export const KNOWLEDGE_RULE_VERSION = "playbook_v1_5";
 
 /** 構文パターン正式名(16種)。multiセレクタが必ずこの中から5つを選ぶ。 */

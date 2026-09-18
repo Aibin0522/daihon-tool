@@ -1,3 +1,6 @@
+import { buildLearning } from "./growth.mjs";
+import { GENERATION_RULES, RULE_VERSION, auditScript } from "./rules.mjs";
+import { authorized, handleGrowth } from "./http.mjs";
 import type { Env, JobMessage, JobRequest, ReviewRequest, PackCase } from "./types";
 import { REASON_TAGS } from "./types";
 import { generateJson } from "./adapters/llm";
@@ -41,95 +44,15 @@ function storeNameOf(input: JobRequest["input"]): string | null {
   return h?.store?.name ?? null;
 }
 
-// ---------- レビュー燃料(学習ループ) ----------
-
-const TAG_LABEL: Record<string, string> = {
-  hook_weak: "冒頭が弱い",
-  fact_error: "事実が違う",
-  generic: "一般論すぎる",
-  tone_mismatch: "らしくない",
-  structure_bad: "順番が悪い",
-  cta_weak: "CTAが弱い",
-  compliance_risk: "表現・権利リスク",
-  good_pattern: "勝ちパターン",
-};
-
-/** 台本JSON(単発/case両形式)から1秒目フックを取り出す */
-function hookOf(body: Record<string, unknown>): string {
-  if (typeof body.hook === "string" && body.hook.trim()) return body.hook.trim();
-  const hooks = body.hooks;
-  if (Array.isArray(hooks) && typeof hooks[0] === "string") return (hooks[0] as string).trim();
-  const c8 = body.catchcopies_8wari;
-  if (Array.isArray(c8) && c8[0] && typeof (c8[0] as { text?: string }).text === "string") {
-    return (c8[0] as { text: string }).text.trim();
-  }
-  return "";
-}
-
-interface FuelRow {
-  decision: string;
-  reason_tags: string;
-  reason_note: string | null;
-  after_text: string | null;
-  syntax_pattern: string | null;
-  body_json: string;
-}
-
-/**
- * 全店共通のレビュー履歴から「手本(採用)」と「NG(ボツ)」を抽出し、
- * 生成プロンプトに差し込む学習ブロックを作る。レビューが無ければ空文字。
- */
-async function buildFuel(env: Env): Promise<string> {
-  let rows: { results?: FuelRow[] };
-  try {
-    rows = await env.DB.prepare(
-      `SELECT r.decision, r.reason_tags, r.reason_note, r.after_text, s.syntax_pattern, s.body_json
-       FROM script_reviews r JOIN scripts s ON r.script_id = s.id
-       ORDER BY r.created_at DESC LIMIT 60`
-    ).all<FuelRow>();
-  } catch {
-    return "";
-  }
-  const good: string[] = [];
-  const bad: string[] = [];
-  for (const r of rows.results ?? []) {
-    let tags: string[] = [];
-    try { tags = JSON.parse(r.reason_tags) as string[]; } catch { /* ignore */ }
-    let body: Record<string, unknown> = {};
-    try { body = JSON.parse(r.body_json) as Record<string, unknown>; } catch { /* ignore */ }
-    const pat = r.syntax_pattern || (body.pattern as string) || "-";
-    const hook = hookOf(body);
-
-    if (r.decision === "adopted" || tags.includes("good_pattern")) {
-      if (good.length < 6 && hook) good.push(`・[${pat}] フック「${hook}」`);
-    } else if (r.decision === "revised") {
-      if (good.length < 6 && r.after_text) {
-        const after = r.after_text.split("\n")[0].slice(0, 40);
-        good.push(`・[${pat}] 修正後テロップの方向性「${after}」`);
-      }
-    } else if (r.decision === "rejected") {
-      if (bad.length < 6 && hook) {
-        const why = tags.map(t => TAG_LABEL[t] || t).filter(Boolean).join("・") || (r.reason_note ?? "");
-        bad.push(`・[${pat}] フック「${hook}」は避ける${why ? `(理由: ${why})` : ""}`);
-      }
-    }
-  }
-  if (good.length === 0 && bad.length === 0) return "";
-
-  let block = "\n\n## 過去レビューからの学習(全店共通・必ず反映)";
-  if (good.length) block += `\n### 手本(採用された良い型・良い直し。この方向を活かす)\n${good.join("\n")}`;
-  if (bad.length) block += `\n### 避けるべき例(過去にボツ。同じ轍を踏まない)\n${bad.join("\n")}`;
-  return block;
-}
-
 // ---------- API (fetch) ----------
 
 async function handleFetch(req: Request, env: Env): Promise<Response> {
   const url = new URL(req.url);
   const path = url.pathname;
 
-  const auth = req.headers.get("Authorization") ?? "";
-  if (auth !== `Bearer ${env.API_AUTH_TOKEN}`) return err("unauthorized", 401);
+  if (!await authorized(req, env.API_AUTH_TOKEN)) return err("unauthorized", 401);
+  const growthResponse = await handleGrowth(req, env);
+  if (growthResponse) return growthResponse;
 
   try {
     // ===== 店舗(D1共有・設計書 Day 6-7) =====
@@ -302,8 +225,9 @@ async function processJob(jobId: string, env: Env): Promise<void> {
   const { task, input } = JSON.parse(row.request_json) as JobRequest;
   const model = env.LLM_MODEL;
   const key = env.ANTHROPIC_API_KEY;
-  // 台本生成タスクは、全店共通のレビュー履歴を「燃料」として毎回注入する。
-  const fuel = task === "hearing" ? "" : await buildFuel(env);
+  // 編集判断と同条件の投稿実績を分けて参照する。
+  const learning = task === "hearing" ? null : await buildLearning(env, input);
+  const fuel = learning?.block ?? "";
 
   if (task === "hearing") {
     let query = (input.query ?? "").trim();
@@ -329,7 +253,9 @@ async function processJob(jobId: string, env: Env): Promise<void> {
     const at = input.accountType === "B" ? "B(店舗公式用)" : "A(インフルエンサー用/ume)";
     const pt = input.pattern || "おまかせ(ヒアリングから最適を選ぶ)";
     const user = `${hearingBlock(input)}\nアカウントタイプ: ${at}\n構文パターン: ${pt}${fuel}\n\n重要: 説明文やコードブロック記号を付けず、{で始まり}で終わるJSONだけを出力。`;
-    const script = await generateJson<Record<string, unknown>>(key, model, SINGLE_SYSTEM, user, false, 2500);
+    const script = await generateJson<Record<string, unknown>>(key, model, SINGLE_SYSTEM + GENERATION_RULES, user, false, 3500);
+      script.learning_context = { rule_version: RULE_VERSION, count: learning?.summary?.count ?? 0, status: learning?.summary?.status ?? "unmeasured", limited: learning?.limited ?? false };
+      script.quality_checks = auditScript(script, input);
 
     await env.DB.prepare(
       `INSERT INTO scripts (id, job_id, variant, account_type, body_json, syntax_pattern, model, prompt_version, knowledge_rule_version)
@@ -345,19 +271,21 @@ async function processJob(jobId: string, env: Env): Promise<void> {
   }
 
   if (task === "multi") {
-    await processMulti(jobId, input, env, model, key, fuel);
+    await processMulti(jobId, input, env, model, key, fuel, learning);
     return;
   }
 
   // pack: 3案
   const packType = input.packType === "B" ? "B(店舗公式用)" : "A(インフルエンサー用/ume)";
   const user = `${hearingBlock(input)}${fuel}\n\nこの店の${packType}の3案を作って。3案すべてフックの型を変える。\n重要: 説明文やコードブロック記号を付けず、{で始まり}で終わるJSONだけを出力。`;
-  const pack = await generateJson<{ strategy_summary?: string; cases?: PackCase[] }>(key, model, PACK_SYSTEM, user, false, 3500);
+  const pack = await generateJson<{ strategy_summary?: string; cases?: PackCase[] }>(key, model, PACK_SYSTEM + GENERATION_RULES, user, false, 5000);
   const cases = pack.cases ?? [];
   if (cases.length === 0) throw new Error("packのcasesが空です");
 
   let variant = 0;
   for (const c of cases) {
+    c.learning_context = { rule_version: RULE_VERSION, count: learning?.summary?.count ?? 0, status: learning?.summary?.status ?? "unmeasured", limited: learning?.limited ?? false };
+    c.quality_checks = auditScript(c, input);
     variant++;
     await env.DB.prepare(
       `INSERT INTO scripts (id, job_id, variant, case_label, account_type, body_json, syntax_pattern, model, prompt_version, knowledge_rule_version)
@@ -385,7 +313,8 @@ async function processMulti(
   env: Env,
   model: string,
   key: string,
-  fuel: string
+  fuel: string,
+  learning: Awaited<ReturnType<typeof buildLearning>> | null
 ): Promise<void> {
   const at = input.accountType === "B" ? "B(店舗公式用)" : "A(インフルエンサー用/ume)";
   const canon = PATTERN_CANON as readonly string[];
@@ -398,8 +327,8 @@ async function processMulti(
   if (chosen.length > 0) {
     patterns = [...new Set(chosen)].slice(0, 5);
   } else {
-    const selUser = `${hearingBlock(input)}\nアカウントタイプ: ${at}\n\nこの店に最も合う構文パターンを相性順に3つ選んでJSONで返す。`;
-    const sel = await generateJson<SelectResult>(key, model, MULTI_SELECT_SYSTEM, selUser, false, 800);
+    const selUser = `${hearingBlock(input)}${fuel}\nアカウントタイプ: ${at}\n\nこの店に最も合う構文パターンを相性順に3つ選んでJSONで返す。`;
+    const sel = await generateJson<SelectResult>(key, model, MULTI_SELECT_SYSTEM + GENERATION_RULES, selUser, false, 1000);
     strategy = sel.strategy_summary ?? "";
     let pats = (sel.patterns ?? []).map(p => (p.name ?? "").trim()).filter(name => canon.includes(name));
     pats = [...new Set(pats)];
@@ -415,7 +344,9 @@ async function processMulti(
   const genOne = async (pat: string): Promise<{ pat: string; script: Record<string, unknown> } | null> => {
     const user = `${hearingBlock(input)}\nアカウントタイプ: ${at}\n構文パターン: ${pat}${fuel}\n\n重要: 説明文やコードブロック記号を付けず、{で始まり}で終わるJSONだけを出力。`;
     try {
-      const script = await generateJson<Record<string, unknown>>(key, model, SINGLE_SYSTEM, user, false, 2500);
+      const script = await generateJson<Record<string, unknown>>(key, model, SINGLE_SYSTEM + GENERATION_RULES, user, false, 3500);
+      script.learning_context = { rule_version: RULE_VERSION, count: learning?.summary?.count ?? 0, status: learning?.summary?.status ?? "unmeasured", limited: learning?.limited ?? false };
+      script.quality_checks = auditScript(script, input);
       return { pat, script };
     } catch {
       return null;

@@ -28,6 +28,17 @@ export interface JobRequest {
     material?: string;
     seasonal?: string;
     extraRules?: string;
+    growth?: {
+      account_id: string;
+      account_type?: string;
+      genre: string;
+      goal: string;
+      distribution: string;
+      horizon_days: number;
+      duration_seconds?: number;
+      verified_facts?: string;
+    };
+    verifiedFacts?: string;
   };
 }
 
